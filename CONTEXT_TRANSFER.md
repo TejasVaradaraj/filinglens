@@ -1,0 +1,143 @@
+# FilingLens: Context Transfer
+
+> **How to use this:** paste this whole file as the first message in a new Claude chat (on any computer), then say what you want to do next, for example "Continue from Phase 0, Step 2." Claude will then know the project, the decisions made so far, how I want to work, and where I left off.
+
+---
+
+## 1. Who I am and how I want to work
+
+- I'm **Tejasvi**, a CS student. I know Python, React and some FastAPI. I'm starting **AI engineering from zero**.
+- I'm building FilingLens to **learn AI engineering on the fly** and to have a **strong technical project for internship applications**.
+- **Use simple language.** Explain every new term the first time it comes up. Be detailed about *what* is happening and *why*.
+- **Don't write or edit code files for me.** Show code in chat, explain it line by line or block by block, and tell me which file it goes in and what command to run. I decide whether to paste it myself. On some computers I'm only reading and exploring, not coding, so explaining matters more than producing code.
+- Teach the same way throughout: one step at a time, a short "why" for each, a quick check-your-understanding question at the end of each step, and wait for me before moving on.
+- Follow the phase order below. Measure first, then build, then measure again.
+- Never ask me to paste my API key into chat.
+
+---
+
+## 2. The project in one paragraph
+
+**FilingLens** is a verifiable analyst copilot for SEC filings. You ask a question about a public company's 10-K, 10-Q or earnings call in plain English, and get an answer with exact numbers, the math shown, and a link to the page and table every number came from. If the filings don't support an answer, it says "not disclosed" instead of guessing.
+
+**Three core rules:**
+1. Find the right page, including tables.
+2. Never let the LLM do arithmetic. Python computes.
+3. Every claim carries a citation that is automatically checked against the source.
+
+**Proof it works:** scored on **FinanceBench** (150 open-source analyst questions over real filings, each with a gold answer and its evidence page) against two baselines I build myself, both using the same model: (a) **naive RAG** (fixed chunks, vector search only) and (b) **long-context** (whole filing in the prompt).
+
+### Architecture
+
+```
+INGESTION (once per filing)
+  SEC EDGAR / FinanceBench PDFs --> Parser (sections + real tables, units, page numbers)
+  --> Chunker (section-aware, never mid-table, tagged ticker/year/form/section/page)
+  --> Postgres (filings, sections, tables, XBRL facts) + pgvector (embeddings) + full-text/BM25
+
+QUERY (per question)
+  Question --> Planner (question type; which companies/years/metrics)
+  --> Retriever (metadata filter -> hybrid BM25 + vectors -> reranker)
+  --> Extractor (LLM -> structured JSON: value, unit, scale, period, source span ID)
+  --> Calculator (Python only; unit normalization; cross-check vs SEC XBRL)
+  --> Answer writer (LLM; cites span IDs only)
+  --> Verifier (every number/claim must match its cited span, else fix or refuse)
+  --> Streamed response + citations + "show work" panel
+```
+
+**Planned stack:** Python 3.12 + FastAPI, Postgres + pgvector + Postgres full-text, EDGAR APIs or edgartools, a parser chosen by eval score (Docling vs PyMuPDF/pdfplumber), Pydantic, pytest, Langfuse (tracing, v2), Next.js + Tailwind (UI), Redis + RQ/Celery (v3), Render/Fly for v1 and AWS for v3.
+
+---
+
+## 3. Decisions already made (don't re-ask)
+
+| Topic | Decision | Why |
+|---|---|---|
+| **LLM** | **Claude Haiku 5.5**, model ID `claude-haiku-5-5`, using the `anthropic` Python SDK | Cheapest model with a decent score. Price: $0.10 / $0.50 per 1M input/output tokens for prompts under 100K tokens; $0.50 / $2.50 above that. |
+| **Effort** | Default `output_config={"effort": "low"}`. Raise to medium only where evals show a gain. **Never above `high`.** | Most calls are simple extraction or writing; the hard math is in Python. Haiku's own default is medium, so set low explicitly. |
+| **Temperature** | Don't use it. Haiku 5.5 returns an error (400) on non-default temperature. | Use effort as the setting to experiment with instead. |
+| **Thinking** | Haiku 5.5 thinks adaptively by default. `budget_tokens` is rejected (400). | |
+| **Same model everywhere** | The baselines and FilingLens use the same model. | Keeps the comparison fair. |
+| **Models rejected** | GPT-6 Sol ($2 / $10, too expensive). GPT-6 Luna (I judged it weak: index score 38.1). | Compared on the Artificial Analysis Intelligence Index, Oct 2026: Sonnet 5.5 56.0, GPT-6.1 Sol 51.8, Haiku 5.5 43.4, Gemini 3.8 Flash 40.9, DeepSeek V4.1 Flash 39.5, Luna 38.1. |
+| **Local models** | No local LLM as the main model. **Local embeddings** (a small open embedding model) are planned, since they're free. | My Mac is an M1 with 8 GB RAM and about 22 GB free disk, so only tiny LLMs would fit, and they're too weak for this. |
+| **Google Colab** (I have Google AI Pro) | Only for one-off jobs like the optional fine-tuning stretch goal. Not the app backend. | Colab sessions disconnect and it isn't a server. |
+| **Fine-tuning** | Not part of v1, v2 or v3. Optional stretch goal after v2 only. | A LoRA adapter is tied to its base model, so switching models means retraining. But the dataset, training script and eval carry over, and those are the real assets. |
+| **Budget** | About $10 of API credit to start. | With Haiku: about $0.11 per 100-question RAG eval run. Use the Batch API (50% off) for evals, iterate on about 20 questions, and run the long-context baseline once on a subset. Set a spending limit. |
+| **Python tooling** | `uv` for environments and dependencies. Project pinned to Python 3.12. | My default `python3` is 3.14 (Anaconda), which some AI libraries don't support yet. |
+
+---
+
+## 4. Current state of the repo (as of 2026-10-21)
+
+Folder: `~/Desktop/filinglens`. It's a git repo with **no commits yet**, so the repo **isn't on GitHub**. On another computer, either push it to GitHub first or recreate the files below.
+
+**Files that exist:**
+- `pyproject.toml`: name `filinglens`, Python >=3.12, deps `python-dotenv`, dev group `pytest`, hatchling build, package at `src/filinglens`. It says `readme = "README.md"`, but README.md doesn't exist yet, so install fails until it's created.
+- `.env.example`: still says `OPENAI_API_KEY=sk-...`. Needs changing to `ANTHROPIC_API_KEY=sk-ant-...`.
+- `.gitignore`: ignores `__pycache__/`, `*.pyc`, `.venv/`, `.env`, `data/`, `.DS_Store`.
+- `src/filinglens/__init__.py`: just a docstring.
+- `src/filinglens/config.py`: loads `.env`, defines `PROJECT_ROOT`, `DATA_DIR`, `OPENAI_API_KEY`, `require_openai_key()`. Needs updating (see below).
+- `tests/test_smoke.py`: 2 tests that check `PROJECT_ROOT` and `DATA_DIR`.
+- `data/` and `scripts/`: empty.
+- `ROADMAP.md`: the full beginner-friendly roadmap. Section 5 below is a condensed copy.
+
+**Where I left off: Phase 0, Step 1 (setup) has been explained but I haven't confirmed it's done.** The Step 1 commands:
+1. `uv python pin 3.12`
+2. `echo "# FilingLens" > README.md`
+3. `uv sync`
+4. `uv add anthropic`
+5. Get a key at platform.claude.com, add $5–10 credit, set a spending limit.
+6. Replace `.env.example` with `ANTHROPIC_API_KEY=sk-ant-...`, then `cp .env.example .env` and put the real key in `.env`.
+7. Replace `config.py` with a version that has `ANTHROPIC_API_KEY`, `MODEL = "claude-haiku-5-5"`, `DEFAULT_EFFORT = "low"`, and `require_anthropic_key()` (fails if the key is missing or still starts with `sk-ant-...`).
+8. `uv run pytest` should print `2 passed`.
+9. `git status` (check `.env` isn't listed), then `git add .` and the first commit.
+
+**Next: Phase 0, Step 2.** My first LLM call: a small script that sends Haiku a question and prints the answer, input/output token counts (`response.usage`), and the cost in dollars.
+
+---
+
+## 5. The roadmap (condensed; full version in ROADMAP.md)
+
+No dates. Move on only when a phase's **Done when** checklist is met. Every phase ends with an eval run and a line in `CHANGELOG.md` (version, change, scores).
+
+**Phase 0: Setup and talking to an LLM.** Set up the environment. Make a first API call. Experiment with the system prompt, **effort** (low/medium/high), token counts and cost. Paste a 10-K page and watch the model miscount numbers or get math wrong. Download FinanceBench and read about 10 questions and their PDFs by hand.
+*Done when:* I can call the model and print cost per call, I've read about 10 questions, and I can explain tokens, context window and effort.
+
+**Phase 1: Build the scoreboard (evals) and two baselines.** Split FinanceBench into dev (~100) and test (~50, used only for reported numbers). Start my own questions (multi-year, "not disclosed"). Eval runner: answer, latency, cost, and a score (numbers within ~1%, text graded by an LLM judge). Hand-check the judge on ~20 answers. Baseline A: naive RAG. Baseline B: long context. Same model for both.
+*Done when:* one command runs the eval, both baselines are scored in CHANGELOG.md, and the judge has been hand-checked.
+
+**Phase 2: Reading filings properly.** Pick a parser by measuring (timebox it). Split filings into sections (Item 1A, 7, 8). Handle table units/scale/period, `(1,234)` negatives and multi-row headers. Postgres + pgvector in Docker Compose. Idempotent EDGAR fetcher (User-Agent, throttling, cache). Unit tests for parsing edge cases.
+*Done when:* tables keep their structure and units, and re-running ingestion creates no duplicates.
+
+**Phase 3: Finding the right pages.** Add recall@k to the eval. Section-aware chunking (never mid-table; headers attached). Embeddings in pgvector, BM25/full-text search, metadata filters before search, hybrid merge (reciprocal rank fusion), ablation table.
+*Done when:* recall@k clearly beats the naive baseline, and the ablation table explains each component's contribution.
+
+**Phase 4: Exact numbers, math in code.** Pydantic schema (value, unit, scale, period, source span ID). Structured outputs with validation and retry. Tested Python calculator (margins, growth, ratios, unit normalization, fiscal vs calendar years). The LLM calls the calculator as a tool.
+*Done when:* calculator tests pass, and math/unit errors drop on dev.
+
+**Phase 5: Answers, citations, refusal.** Answer writer cites span IDs only. Number checker. Calibrated "not disclosed" refusal, plus over-refusal measured. Hallucination rate (wrong and not refused). FastAPI endpoint with streaming (SSE). Minimal UI or CLI with a show-work panel.
+*Done when:* hallucination rate and refusal accuracy are reported, and the API streams cited answers.
+
+**Phase 6: Failure loop, then ship v1.** Bucket every dev failure (retrieval / parse / unit / math / hallucination / refusal), fix the biggest bucket, rerun, repeat. Run the test set once. Next.js UI, deploy (Render/Fly/Railway), README with the 3-way results table.
+*Done when (v1):* beats both baselines on dev, one held-out test number, live link, README readable in 2 minutes. **Start applying for internships here.**
+
+**Phase 7 (v2): Multi-filing and rigor, in this order.** Tracing and cost/latency logging. Reranker. Query planner / agent (decompose, parallel asyncio sub-queries, sourced comparison tables). Full citation verifier (LLM judge for prose; citation precision). XBRL cross-check. Caching and model routing. Evals in GitHub Actions CI (block regressions). Earnings call transcripts.
+*Done when:* comparisons work end to end, citation precision is measured, and CI shows score history.
+
+**Phase 8 (v3): Production, ordered by resume value; stop when out of time.** Bulk ingestion job queue (retries, dead-letter queue, idempotency). "What changed" year-over-year diff plus auto-update. Citation viewer and Excel export. Prompt-injection defense for uploads. Auth/workspaces. AWS deploy, Sentry, load test (p95). Write-up and 2-minute demo.
+
+**Stretch (after v2, pick one):** fine-tune a small model for routing/extraction; fine-tune an embedding model or reranker; expose FilingLens as an MCP server.
+
+**Internship priority:** ⭐⭐⭐ evals and error analysis (Phases 1, 6), RAG/chunking/metadata (2, 3), embeddings/hybrid search/retrieval metrics (3), structured outputs and tool use (4), hallucination/grounding/citations/refusal (5). ⭐⭐ reranking, planning/agents, tracing/cost/routing, evals in CI (7), prompt injection (8). ⭐ queues, auth, AWS, load testing (8).
+
+**Habits:** change one thing at a time and record the delta. Keep a "hardest bugs" log. Only put numbers on the resume that I measured. Timebox parsing. Watch API cost. At the end of each phase, explain its concepts back in my own words.
+
+---
+
+## 6. Key references
+
+- FinanceBench: https://github.com/patronus-ai/financebench (paper: https://arxiv.org/abs/2311.11944)
+- Claude API pricing: https://platform.claude.com/docs/en/about-claude/pricing
+- Claude Haiku 5.5: https://platform.claude.com/docs/en/models/haiku-5-5/overview
+- SEC EDGAR APIs; edgartools: https://edgartools.readthedocs.io/en/stable/xbrl/
+- My original pitch: `FilingLens_Project_Pitch.pdf` (on my Mac's Desktop)
