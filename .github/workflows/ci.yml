@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.3"
+      - name: Install
+        run: uv sync --frozen
+      # Tests that need the FinanceBench PDFs, Postgres or the API skip themselves.
+      - name: Unit tests
+        run: uv run pytest -q
+
+  eval-gate:
+    # Evals run locally (they need the API key, the licensed FinanceBench PDFs and the
+    # database); their results are committed to evals/history.jsonl. This job fails the
+    # build if the latest recorded run of the main system regressed past the thresholds
+    # in evals/gate.json.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Eval regression gate
+        run: python scripts/eval_gate.py
