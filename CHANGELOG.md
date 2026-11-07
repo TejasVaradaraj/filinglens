@@ -333,6 +333,15 @@ p95 to 1.05 s: the SSE generator was synchronous, so each open stream held one o
 loop): p95 2.42 s at 80 and 2.45 s at 160 concurrent, throughput linear (65 req/s at 160).
 The production limit is now the Anthropic rate limit (500K input tokens/min, ~20 questions/min).
 
+**Real pipeline under load** (v5, 20 dev questions, 5 concurrent, M1 + local Postgres + Haiku):
+20/20 ok in 30 s; latency p50 6.8 s, p95 12.0 s, p99 15.3 s; first streamed event p50 0.9 s,
+p95 2.5 s; $0.05 total. These questions had cached planner/reranker outputs; a new question adds ~1 s.
+
+**Hosting estimate** (third-party price listings, Nov 2026; verify on aws.amazon.com): the app is
+one Python API (~0.5 GB RAM incl. the embedding model) + Postgres (~1 GB data, ~0.2 GB RAM).
+Lightsail 2 GB all-in-one ~$12/mo (4 GB ~$24/mo); EC2 t4g.small + 20 GB gp3 + public IPv4
+~$17/mo; EC2 + RDS db.t4g.micro ~$30/mo. Plus Anthropic usage (~$0.0035/question).
+
 ### Notes
 - **Judge audit #1 (oracle run, 20 judged answers, graded by Claude Opus 5.5 as second grader):**
   17/20 agreement. All 3 disagreements were the judge being too strict (2 direction questions)
