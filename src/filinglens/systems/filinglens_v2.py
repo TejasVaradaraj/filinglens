@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 
-from filinglens import llm
+from filinglens import llm, tracing
 from filinglens.calc import OPERATIONS, SCALES, CalcError, Value, calculate
 from filinglens.dataset import Question
 from filinglens.extract import extract
@@ -118,10 +118,13 @@ def run_pipeline(question: Question, verify_answer: bool = False, emit=None, rer
     from filinglens.verifier import check, repair_prompt
 
     emit = emit or _noop
-    r = retrieve(question.question, rerank=rerank)
+    with tracing.span("retrieve"):
+        r = retrieve(question.question, rerank=rerank)
     emit("plan", {"company": r.plan.company, "fiscal_years": r.plan.fiscal_years, "query": r.query})
     emit("retrieval", {"pages": [{"doc": d, "page": n} for d, n in r.pages]})
-    ex = extract(question.question, r.excerpts, r.texts)
+    with tracing.span("extract"):
+        ex = extract(question.question, r.excerpts, r.texts)
+        tracing.annotate(values=len(ex.values), dropped=len(ex.dropped))
     emit("values", [{"id": v.id, "label": v.label, "value": v.value, "unit": v.unit, "scale": v.scale,
                      "period": v.period, "doc": v.doc, "page": v.page, "quote": ex.quotes[v.id]} for v in ex.values])
     cost = r.plan.cost_usd + r.rerank_cost + ex.cost_usd
@@ -133,17 +136,21 @@ def run_pipeline(question: Question, verify_answer: bool = False, emit=None, rer
     user = (f"VERIFIED VALUES:\n{_values_table(ex.values, ex.quotes)}\n\n"
             f"Filing excerpts:\n\n{r.excerpts}\n\nQuestion: {question.question}")
     messages: list = [{"role": "user", "content": user}]
-    text, c, in_tok, out_tok = _tool_loop(messages, known, calcs, emit)
+    with tracing.span("answer"):
+        text, c, in_tok, out_tok = _tool_loop(messages, known, calcs, emit)
+        tracing.annotate(calculations=len(calcs))
     cost += c
 
     report, repaired = None, False
     if verify_answer:
         page_texts = [r.texts.get(k, "") for k in r.pages]
-        report = check(text, known, page_texts)
+        with tracing.span("verify"):
+            report = check(text, known, page_texts)
         if report.unsupported:
             messages.append({"role": "user", "content": repair_prompt(report)})
             emit("repair", {"unsupported": [x.text for x in report.unsupported]})
-            new_text, c, i2, o2 = _tool_loop(messages, known, calcs, emit)
+            with tracing.span("repair"):
+                new_text, c, i2, o2 = _tool_loop(messages, known, calcs, emit)
             cost, in_tok, out_tok = cost + c, in_tok + i2, out_tok + o2
             new_report = check(new_text, known, page_texts)
             if len(new_report.unsupported) <= len(report.unsupported):

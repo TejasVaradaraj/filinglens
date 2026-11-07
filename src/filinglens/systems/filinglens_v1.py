@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from filinglens import db, llm
+from filinglens import db, llm, tracing
 from filinglens.dataset import Question
 from filinglens.retrieval.planner import Plan, candidate_filings, plan
 from filinglens.retrieval.search import SEARCHERS
@@ -37,14 +37,19 @@ class Retrieved:
 def retrieve(question: str, rerank: bool = False) -> Retrieved:
     """rerank=False: keyword top chunks -> first PAGES distinct pages (v1-v3).
     rerank=True: keyword top 20 + vector top 20 -> Haiku picks PAGES pages (v4, Phase 6)."""
-    p = plan(question)
-    filing_ids = candidate_filings(p, "period")
+    with tracing.span("plan"):
+        p = plan(question)
+        filing_ids = candidate_filings(p, "period")
     query = p.search_query or question
     rerank_cost = 0.0
     if rerank:
         from filinglens.retrieval.rerank import candidates
         from filinglens.retrieval.rerank import rerank as llm_rerank
-        pages, rerank_cost = llm_rerank(question, candidates(question, query, filing_ids), PAGES)
+        with tracing.span("search"):
+            cands = candidates(question, query, filing_ids)
+            tracing.annotate(candidates=len(cands))
+        with tracing.span("rerank"):
+            pages, rerank_cost = llm_rerank(question, cands, PAGES)
     else:
         if SEARCHER == "hybrid":
             hits = SEARCHERS["hybrid"](question, CHUNKS, filing_ids, keyword_query=query)
@@ -55,7 +60,7 @@ def retrieve(question: str, rerank: bool = False) -> Retrieved:
             if (h.doc_name, h.page_num) not in pages:
                 pages.append((h.doc_name, h.page_num))
         pages = pages[:PAGES]
-    with db.connect() as conn:
+    with tracing.span("fetch_pages"), db.connect() as conn:
         texts = {(d, n): t for d, n, t in conn.execute(
             """SELECT f.doc_name, p.page_num, p.text_md FROM pages p JOIN filings f ON f.id = p.filing_id
                WHERE (f.doc_name, p.page_num) IN (SELECT * FROM unnest(%s::text[], %s::int[]))""",

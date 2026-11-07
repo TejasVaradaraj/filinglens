@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 
-from filinglens import config
+from filinglens import config, tracing
 from filinglens.dataset import Question, load_split
 from filinglens.eval import scoring
 from filinglens.systems import get_system
@@ -28,11 +28,12 @@ from filinglens.systems import get_system
 
 def run_one(system, question: Question) -> dict:
     start = time.perf_counter()
-    try:
-        answer = system(question)
-        error = None
-    except Exception as exc:  # one bad question must not kill the whole run
-        answer, error = None, f"{type(exc).__name__}: {exc}\n{traceback.format_exc(limit=3)}"
+    with tracing.trace("question") as t:
+        try:
+            answer = system(question)
+            error = None
+        except Exception as exc:  # one bad question must not kill the whole run
+            answer, error = None, f"{type(exc).__name__}: {exc}\n{traceback.format_exc(limit=3)}"
     latency = time.perf_counter() - start
 
     if answer is None:
@@ -63,6 +64,7 @@ def run_one(system, question: Question) -> dict:
         "retrieved_pages": retrieved,
         "notes": notes,
         "error": error,
+        "trace": t.to_dict(),
     }
 
 

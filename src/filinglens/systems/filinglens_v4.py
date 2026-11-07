@@ -6,6 +6,7 @@ it raises gold-page-in-final-5 from 76 to 85.
 """
 from __future__ import annotations
 
+from filinglens import tracing
 from filinglens.dataset import Question
 from filinglens.systems.base import SystemAnswer
 from filinglens.systems.filinglens_v2 import run_pipeline
@@ -13,7 +14,8 @@ from filinglens.systems.filinglens_v3 import scope_refusal
 
 
 def answer(question: Question, emit=None) -> SystemAnswer:
-    refusal, cost = scope_refusal(question.question)
+    with tracing.span("scope_gate"):
+        refusal, cost = scope_refusal(question.question)
     if refusal:
         if emit:
             emit("answer", {"text": refusal, "scope_gate": True})
