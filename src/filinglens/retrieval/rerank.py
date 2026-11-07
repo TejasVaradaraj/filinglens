@@ -11,7 +11,7 @@ import hashlib
 import json
 from threading import Lock
 
-from filinglens import config, llm
+from filinglens import config, llm, security
 from filinglens.retrieval.search import Hit, keyword_search, vector_search
 
 KEYWORD_K = 20
@@ -60,7 +60,7 @@ def rerank(question: str, cands: list[tuple[str, int, str]], k: int = 5) -> tupl
         chosen = cache[key]
     else:
         result = llm.complete(f"Question: {question}\n\nCandidate pages:\n\n{listing}",
-                              system=RERANK_SYSTEM, json_schema=SCHEMA, max_tokens=2000)
+                              system=RERANK_SYSTEM + security.system_note(), json_schema=SCHEMA, max_tokens=2000)
         chosen, cost = json.loads(result.text)["pages"], result.cost_usd
         with _lock:
             cache = json.loads(CACHE.read_text()) if CACHE.exists() else {}

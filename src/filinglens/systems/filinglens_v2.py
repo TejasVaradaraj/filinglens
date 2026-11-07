@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 
-from filinglens import llm, tracing
+from filinglens import llm, security, tracing
 from filinglens.calc import OPERATIONS, SCALES, CalcError, Value, calculate
 from filinglens.dataset import Question
 from filinglens.extract import extract
@@ -76,7 +76,7 @@ def _tool_loop(messages: list, known: dict[str, Value], calcs: list[dict], emit=
     """Run the answer writer until it stops calling `calculate`. Returns (text, cost, in, out)."""
     cost, in_tok, out_tok = 0.0, 0, 0
     for _ in range(MAX_TURNS):
-        response, c = llm.chat(messages, ANSWER_SYSTEM, [CALC_TOOL])
+        response, c = llm.chat(messages, ANSWER_SYSTEM + security.system_note(), [CALC_TOOL])
         cost += c
         in_tok += response.usage.input_tokens
         out_tok += response.usage.output_tokens
@@ -144,6 +144,16 @@ def run_pipeline(question: Question, verify_answer: bool = False, emit=None, rer
         r = retrieve(question.question, rerank=rerank)
     emit("plan", {"company": r.plan.company, "fiscal_years": r.plan.fiscal_years, "query": r.query})
     emit("retrieval", {"pages": [{"doc": d, "page": n} for d, n in r.pages]})
+    injections = []
+    if security.enabled():
+        with tracing.span("sanitize"):
+            for key, text in list(r.texts.items()):
+                clean, removed = security.sanitize(text)
+                if removed:
+                    r.texts[key] = clean
+                    injections += [{"doc": key[0], "page": key[1], "text": t} for t in removed]
+        if injections:
+            emit("security", {"removed": injections})
     with tracing.span("extract"):
         ex = extract(question.question, r.excerpts, r.texts)
         tracing.annotate(values=len(ex.values), dropped=len(ex.dropped))
@@ -189,7 +199,7 @@ def run_pipeline(question: Question, verify_answer: bool = False, emit=None, rer
         "values": [{**v.__dict__, "quote": ex.quotes[v.id], "repaired_from": ex.repaired.get(v.id),
                     "xbrl": xbrl.get(v.id)} for v in ex.values],
         "dropped_values": ex.dropped, "calculations": calcs, "missing": ex.missing,
-        "company": r.plan.company, "query": r.query,
+        "company": r.plan.company, "query": r.query, "injections_removed": injections,
     }
     if report is not None:
         notes["citation_check"] = {"precision": report.precision, "repair_round": repaired,

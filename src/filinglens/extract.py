@@ -12,7 +12,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from filinglens import llm
+from filinglens import llm, security
 from filinglens.calc import SCALES, UNITS, Value
 from filinglens.parsing.numbers import parse_number
 
@@ -122,7 +122,7 @@ def verify(v: dict, pages: dict[tuple[str, int], str]) -> str | None:
 
 def extract(question: str, excerpts: str, pages: dict[tuple[str, int], str]) -> Extraction:
     prompt = f"Filing excerpts:\n\n{excerpts}\n\nQuestion: {question}"
-    result = llm.complete(prompt, system=EXTRACT_SYSTEM, json_schema=EXTRACTION_SCHEMA, max_tokens=8000)
+    result = llm.complete(prompt, system=EXTRACT_SYSTEM + security.system_note(), json_schema=EXTRACTION_SCHEMA, max_tokens=8000)
     data = json.loads(result.text)
     values, quotes, dropped, repaired = [], {}, [], {}
     for i, v in enumerate(data["values"], 1):

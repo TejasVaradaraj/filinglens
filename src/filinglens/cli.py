@@ -26,6 +26,9 @@ def show(event: str, data) -> None:
                   f"({v['unit']}, {v['scale']}) <- {v['doc']} p{v['page']}{sec}{RESET}")
     elif event == "calculation":
         print(f"{DIM}calc     [{data['id']}] {data['formula']} = {data['text']}{RESET}")
+    elif event == "security":
+        for r in data["removed"]:
+            print(f"{RED}blocked  instruction-like text on {r['doc']} p{r['page']}: {r['text'][:100]}{RESET}")
     elif event == "repair":
         print(f"{DIM}repair   unsupported numbers: {', '.join(data['unsupported'])}{RESET}")
     elif event == "answer":

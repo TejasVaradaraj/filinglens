@@ -10,8 +10,8 @@ answer, and the citation check as they happen.
 """
 from __future__ import annotations
 
+import asyncio
 import json
-import queue
 import threading
 import time
 
@@ -19,15 +19,19 @@ from pathlib import Path
 
 import html as htmllib
 import io
+import os
 import re
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from filinglens import config, db
+from filinglens import auth, config, db
 from filinglens.dataset import Question
 from filinglens.systems import filinglens_v5 as system
+
+if os.getenv("FL_STUB_SYSTEM") == "1":  # load testing the server without model calls
+    from filinglens.systems import stub as system  # noqa: F811
 
 UI = Path(__file__).with_name("ui") / "index.html"
 
@@ -43,24 +47,32 @@ def _sse(event: str, data) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
-def stream_answer(question: str):
-    """Run the pipeline in a worker thread and yield its events as SSE frames."""
-    events: queue.Queue = queue.Queue()
+async def stream_answer(question: str, key_id: str | None = None):
+    """Run the pipeline in its own thread and yield its events as SSE frames.
+
+    Async on purpose: a sync generator holds one of Starlette's 40 threadpool threads for the
+    whole stream, so stream 41 waited (load test: p95 2.4 s -> 3.6 s at 80 concurrent). Here the
+    pipeline thread hands events to the event loop and a waiting stream holds no thread.
+    """
+    loop = asyncio.get_running_loop()
+    events: asyncio.Queue = asyncio.Queue()
+    put = lambda item: loop.call_soon_threadsafe(events.put_nowait, item)  # noqa: E731
     start = time.perf_counter()
     q = Question(id="api", company="", doc_name="", question_type="api", question=question, answer="")
 
     def work():
         try:
-            result = system.answer(q, emit=lambda e, d: events.put((e, d)))
-            events.put(("done", {"cost_usd": round(result.cost_usd, 6),
-                                 "latency_s": round(time.perf_counter() - start, 2),
-                                 "model": config.MODEL}))
+            result = system.answer(q, emit=lambda e, d: put((e, d)))
+            if key_id:
+                auth.record(key_id, result.cost_usd)
+            put(("done", {"cost_usd": round(result.cost_usd, 6),
+                          "latency_s": round(time.perf_counter() - start, 2), "model": config.MODEL}))
         except Exception as exc:  # report, don't hang the stream
-            events.put(("error", {"message": f"{type(exc).__name__}: {exc}"}))
-        events.put(None)
+            put(("error", {"message": f"{type(exc).__name__}: {exc}"}))
+        put(None)
 
     threading.Thread(target=work, daemon=True).start()
-    while (item := events.get()) is not None:
+    while (item := await events.get()) is not None:
         yield _sse(*item)
 
 
@@ -74,9 +86,20 @@ def health() -> dict:
     return {"status": "ok", "model": config.MODEL}
 
 
+def _authorize(x_api_key: str | None) -> str | None:
+    """With FL_REQUIRE_API_KEY=1, every request needs a valid key within its limits."""
+    if not auth.required():
+        return None
+    try:
+        return auth.check(x_api_key)
+    except auth.AuthError as e:
+        raise HTTPException(e.status, str(e))
+
+
 @app.post("/ask")
-def ask(body: Ask) -> StreamingResponse:
-    return StreamingResponse(stream_answer(body.question), media_type="text/event-stream",
+async def ask(body: Ask, x_api_key: str | None = Header(default=None)) -> StreamingResponse:
+    key_id = _authorize(x_api_key)
+    return StreamingResponse(stream_answer(body.question, key_id), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
@@ -103,13 +126,17 @@ def page(doc_name: str, page_num: int, quote: str = Query("", max_length=2000)) 
 
 
 @app.get("/diff")
-def year_over_year(company: str, from_year: int, to_year: int, format: str = "json"):
+def year_over_year(company: str, from_year: int, to_year: int, format: str = "json",
+                   x_api_key: str | None = Header(default=None)):
     """What changed between two 10-Ks: XBRL metrics + risk-factor paragraph diff + summary."""
+    key_id = _authorize(x_api_key)
     from filinglens.diff import diff, to_markdown
     try:
         d = diff(company, from_year, to_year)
     except LookupError as e:
         raise HTTPException(404, str(e))
+    if key_id:
+        auth.record(key_id, d.cost_usd)
     if format == "markdown":
         return Response(to_markdown(d), media_type="text/markdown")
     return {"company": d.company, "from": d.year_a, "to": d.year_b, "metrics": d.metrics, "counts": d.counts,
