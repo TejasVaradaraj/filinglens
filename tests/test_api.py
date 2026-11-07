@@ -51,3 +51,9 @@ def test_ask_validates_input():
 def test_ui_is_served():
     r = TestClient(api.app).get("/")
     assert r.status_code == 200 and "<title>FilingLens</title>" in r.text
+
+
+def test_v5_renumbers_citations():
+    from filinglens.systems.filinglens_v5 import _renumber
+    assert _renumber("Revenue was $43,004 million [v1] and up 5% [r1, v2].", {"v1": "v3", "r1": "v5", "v2": "v4"}) == \
+        "Revenue was $43,004 million [v3] and up 5% [v5, v4]."

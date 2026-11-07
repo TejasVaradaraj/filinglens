@@ -7,9 +7,11 @@ candidate page and returns the most useful pages in order.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+from threading import Lock
 
-from filinglens import llm
+from filinglens import config, llm
 from filinglens.retrieval.search import Hit, keyword_search, vector_search
 
 KEYWORD_K = 20
@@ -23,6 +25,11 @@ Prefer the primary financial statement or note that contains the exact line item
 question needs (e.g. the cash flow statement for capex, the balance sheet for current
 liabilities). When the question compares periods or asks for drivers, include the pages
 for each period and the discussion that explains the change."""
+
+# Cached by (question, candidate pages): reranking is an LLM call, so without the cache the
+# same question can get different pages run to run (seen as +/-2 questions on test).
+CACHE = config.CACHE_DIR / "rerank_cache.json"
+_lock = Lock()
 
 SCHEMA = {"type": "object", "properties": {"pages": {"type": "array", "items": {"type": "integer"}}},
           "required": ["pages"], "additionalProperties": False}
@@ -45,10 +52,23 @@ def rerank(question: str, cands: list[tuple[str, int, str]], k: int = 5) -> tupl
     if len(cands) <= k:
         return [(d, p) for d, p, _ in cands], 0.0
     listing = "\n\n".join(f"[{i}] {d} page {p}\n{prev}" for i, (d, p, prev) in enumerate(cands, 1))
-    result = llm.complete(f"Question: {question}\n\nCandidate pages:\n\n{listing}",
-                          system=RERANK_SYSTEM, json_schema=SCHEMA, max_tokens=2000)
+    key = hashlib.sha256((RERANK_SYSTEM + question + listing).encode()).hexdigest()[:24]
+    with _lock:
+        cache = json.loads(CACHE.read_text()) if CACHE.exists() else {}
+    cost = 0.0
+    if key in cache:
+        chosen = cache[key]
+    else:
+        result = llm.complete(f"Question: {question}\n\nCandidate pages:\n\n{listing}",
+                              system=RERANK_SYSTEM, json_schema=SCHEMA, max_tokens=2000)
+        chosen, cost = json.loads(result.text)["pages"], result.cost_usd
+        with _lock:
+            cache = json.loads(CACHE.read_text()) if CACHE.exists() else {}
+            cache[key] = chosen
+            CACHE.parent.mkdir(parents=True, exist_ok=True)
+            CACHE.write_text(json.dumps(cache))
     picked = []
-    for i in json.loads(result.text)["pages"]:
+    for i in chosen:
         if 1 <= i <= len(cands) and (cands[i - 1][0], cands[i - 1][1]) not in picked:
             picked.append((cands[i - 1][0], cands[i - 1][1]))
     # Top up from the original order if the model returned fewer than k.
@@ -57,4 +77,4 @@ def rerank(question: str, cands: list[tuple[str, int, str]], k: int = 5) -> tupl
             break
         if (d, p) not in picked:
             picked.append((d, p))
-    return picked[:k], result.cost_usd
+    return picked[:k], cost

@@ -23,11 +23,11 @@ from pydantic import BaseModel, Field
 
 from filinglens import config
 from filinglens.dataset import Question
-from filinglens.systems import filinglens_v4 as system
+from filinglens.systems import filinglens_v5 as system
 
 UI = Path(__file__).with_name("ui") / "index.html"
 
-app = FastAPI(title="FilingLens", version="0.6.0",
+app = FastAPI(title="FilingLens", version="0.7.0",
               description="Verifiable analyst copilot for SEC filings")
 
 

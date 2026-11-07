@@ -14,6 +14,7 @@ _REGISTRY = {
     "filinglens_v2": "filinglens.systems.filinglens_v2:answer",
     "filinglens_v3": "filinglens.systems.filinglens_v3:answer",
     "filinglens_v4": "filinglens.systems.filinglens_v4:answer",
+    "filinglens_v5": "filinglens.systems.filinglens_v5:answer",
 }
 
 

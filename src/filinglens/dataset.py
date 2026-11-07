@@ -71,6 +71,8 @@ def load_split(name: str) -> list[Question]:
     """Questions in the 'dev' or 'test' split (see scripts/make_split.py), or 'own'."""
     if name == "own":
         return load_own()
+    if name == "compare":  # multi-filing questions with XBRL gold (scripts/make_comparisons.py)
+        return [Question(**r) for r in _read_jsonl(config.EVALS_DIR / "comparison_questions.jsonl")]
     split = json.loads((config.EVALS_DIR / "splits.json").read_text())
     ids = set(split[name])
     return [q for q in load_questions() if q.id in ids]

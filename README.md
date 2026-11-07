@@ -31,7 +31,8 @@ into dev (100 q, used for building) and **test (50 q on 27 filings, run once at 
 | Naive RAG (fixed chunks, vector search) | 28% | 28% | 12% | $0.0005 | 3 s |
 | Oracle (gold evidence pages handed over) | 88% | 74% | 18% | $0.0003 | 3 s |
 | Long context (whole filing in the prompt, 20 q) | 90% | 80% | 15% | $0.10 | 94 s |
-| **FilingLens v4** | **76%** | **76%** | **12%** | **$0.0036** | **14 s** |
+| FilingLens v4 | 76% | 76% | 12% | $0.0036 | 14 s |
+| **FilingLens v5** (current) | **78%** | 72%* | 16% | $0.0034 | 13 s |
 
 On the 20 test questions all four systems ran: **FilingLens 17/20, long context 16/20**, at
 1/28th of the cost and 1/7th of the p95 latency. Plus: **100% citation precision** (every number
@@ -39,12 +40,22 @@ in an answer traces to a verified value, a calculation or the page; 210/210 on t
 **24/24** unanswerable questions correctly refused. Full history, ablations and what didn't work:
 [CHANGELOG.md](CHANGELOG.md).
 
+*v5 ran the same pipeline as v4 on every test question; the difference is reranker
+run-to-run variance (now cached).
+
+**Multi-filing questions** (v2): 20 comparison questions with gold answers computed from SEC
+XBRL data. FilingLens v5 splits multi-company questions into per-company sub-questions:
+**cross-company 12/12** (v4: 1/12), **across two 10-Ks 7/8**. 71% of extracted dollar values
+are also confirmed by the company's own XBRL tags ("SEC-tagged" in the UI). Every push runs the
+unit tests and an eval regression gate in GitHub Actions.
+
 ## How it works
 
 ```text
 INGESTION   FinanceBench PDFs / SEC EDGAR -> pymupdf4llm (markdown tables) -> sections, tables
             (units, scale, (1,234) negatives) -> structure-aware chunks -> Postgres + pgvector + full-text
-QUERY       question -> planner (company, period, query rewrite) -> scope gate -> keyword + vector
+QUERY       question -> decomposer (one sub-question per company if several) ->
+            planner (company, period, query rewrite) -> scope gate -> keyword + vector
             search within the right filings -> LLM rerank to 5 full pages -> typed value extraction
             (checked against the page) -> answer writer with a Python `calculate` tool
             -> citation check (+1 repair round)
@@ -60,7 +71,9 @@ python -m filinglens.ingest --workers 4   # parse the FinanceBench filings
 python -m filinglens.retrieval.index chunk && python -m filinglens.retrieval.index embed
 python -m filinglens.cli "What was 3M's FY2018 capital expenditure in USD millions?"
 uvicorn filinglens.api:app --port 8000    # web UI on /, POST /ask streams Server-Sent Events
-python -m filinglens.eval.runner --system filinglens_v4 --split dev
+python -m filinglens.eval.runner --system filinglens_v5 --split dev   # also: test, own, compare
+python -m filinglens.xbrl load            # SEC XBRL facts for the cross-check
+python scripts/eval_gate.py               # regression gate (runs in CI)
 uv run pytest
 ```
 

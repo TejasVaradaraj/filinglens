@@ -124,7 +124,15 @@ Folder: `~/Desktop/filinglens`. Public repo: https://github.com/TejasVaradaraj/f
 - Web UI at GET / (src/filinglens/ui/index.html), served by the API. Not yet visually checked in a browser.
 - Remaining for v1: deploy (Render, user wants it later; needs hosted Postgres), visual UI check.
 
-**Next after v1:** Phase 7 (multi-filing comparisons, tracing, XBRL cross-check, evals in CI).
+**Phase 7 / v2 done (2026-11-07), branch `phase-7-v2`** (budget $5, spent ~$0.96, guard: FL_BUDGET_USD in .env, ledger at ~/filinglens-data/spend_ledger.json):
+- tracing.py (stage report: `python -m filinglens.tracing <run_dir>`), prompt caching in the answer loop, cache-aware costs.
+- CI: .github/workflows/ci.yml (tests + eval gate); record runs with `python scripts/record_run.py <run_dir>`; thresholds in evals/gate.json (system filinglens_v5).
+- XBRL: `python -m filinglens.xbrl load` (862K facts); values tagged "SEC-tagged" when confirmed.
+- `--split compare` (20 XBRL-gold questions, scripts/make_comparisons.py). System `filinglens_v5` (decomposer): compare 95%, dev 78%, test 72% (noise vs v4 76%), own 24/24. API/CLI use v5.
+- Planner and reranker outputs are cached (data/cache/plan_cache.json, rerank_cache.json).
+- Not done: earnings transcripts, model routing (by choice), Render deploy (user later).
+
+**Next (optional): Phase 8 (v3)** ordered by resume value: bulk ingestion queue, "what changed" YoY diff, prompt-injection defense, auth, AWS, load test, write-up + demo.
 
 ---
 

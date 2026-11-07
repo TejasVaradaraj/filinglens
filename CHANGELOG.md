@@ -222,6 +222,60 @@ disagreements with gold (13), where tuning further would overfit to FinanceBench
 - One long-context test question first failed on the 500K tokens/min rate limit and was
   retried with `--resume` (counted as answered, not as an error).
 
+## Phase 7 (v2): tracing, caching, CI, XBRL, multi-filing (2026-11-07)
+
+Budget for the phase: $5 (spend guard on). **Spent: ~$0.96.**
+
+**Tracing** (`tracing.py`): nested spans per question; every LLM call reports tokens, cost and
+latency to the active span; traces saved with eval results. v4 stage breakdown (10 dev q):
+answer 44% of cost (pages re-sent on every tool turn), extract 36% and slowest (4.1 s),
+rerank 20%; search/plan/gate/verify ~free.
+
+**Prompt caching** in the answer tool loop (+ cache-aware cost accounting: writes 1.25x,
+reads 0.1x): answer stage -12% cost, pipeline -8% ($0.00372 -> $0.00343/q). Modest because
+most questions finish in 1-2 tool turns.
+
+**Evals in CI:** `evals/history.jsonl` (score history of every recorded run),
+`scripts/eval_gate.py` + `evals/gate.json` (fails if the latest full run of the main system
+drops below thresholds minus noise), `.github/workflows/ci.yml` (unit tests + gate on every
+push). Evals themselves run locally: they need the API key, the licensed PDFs and the database.
+
+**XBRL** (`xbrl.py`): 862,739 us-gaap facts for all 32 companies from SEC company facts.
+Cross-check of v4's extracted USD values (exact value, concept ranked by label overlap):
+71% strongly confirmed, 10% value-only, 19% no match (segment data and note details aren't
+in company facts). A first version with 0.5% tolerance and no label check claimed 96%, but
+included coincidences (3M capex "matched" NetIncomeLoss). Confirmed values are shown as
+"SEC-tagged" in the API, CLI and UI.
+
+**Multi-filing comparisons:** 20 generated questions with gold from XBRL
+(`evals/comparison_questions.jsonl`, `--split compare`): 12 cross-company same-year, 8
+same-company across two 10-Ks. Gold = current-period fact in that year's 10-K (no
+restatements). Companies tag the same metric differently (Corning's capex is
+PaymentsForCapitalImprovements), so each metric has several candidate concepts.
+
+**filinglens_v5** = decomposer + v4: if a question names 2+ companies, split into one
+sub-question per company, run each through v4 in parallel threads, merge verified values into
+one id space, compose with the calculator, check citations.
+
+| System | Cross-company | Across filings | Compare total | Dev | Test | Unanswerable | Citation precision |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| filinglens_v4 | 1/12 | 7/8 | 40% | 76% | 76% | 24/24 | 100% |
+| **filinglens_v5** | **12/12** | 7/8 | **95%** | 78% | 72% | 24/24 | 100% (406/406 dev, 62/62 compare) |
+
+- The decomposer split exactly the 12 cross-company questions and 0/100 dev questions.
+- v5 test 72% vs v4 76%: v5 ran the identical v4 path on all 50 test questions (0 decomposed);
+  the 2 flipped questions had different reranked pages, i.e. reranker non-determinism.
+  Reranker choices are now cached (like planner outputs) so reruns are reproducible.
+- The one comparison miss (Boeing net income FY2018 -> FY2022) used net loss including
+  noncontrolling interests (-$5,053M) where gold uses attributable to Boeing (-$4,935M); both
+  values were extracted correctly.
+- **Bug found and fixed:** the spend ledger lost a write race (buffered write flushed after
+  unlock, append mode) and the corrupted file made 66 dev questions error. Fixed with
+  read/write mode + flush/fsync before unlock + a 400-concurrent-write test; errored rows
+  re-run with --resume.
+- Not done in v2: earnings call transcripts (no free transcript source; FinanceBench's
+  "earnings" PDFs are press releases) and model routing (would break the same-model rule).
+
 ### Notes
 - **Judge audit #1 (oracle run, 20 judged answers, graded by Claude Opus 5.5 as second grader):**
   17/20 agreement. All 3 disagreements were the judge being too strict (2 direction questions)

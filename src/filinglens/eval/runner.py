@@ -143,7 +143,7 @@ def run(system_name: str, split: str, limit: int | None, workers: int, resume: P
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--system", required=True)
-    parser.add_argument("--split", default="dev", choices=["dev", "test", "own"])
+    parser.add_argument("--split", default="dev", choices=["dev", "test", "own", "compare"])
     parser.add_argument("--limit", type=int, default=None, help="only the first N questions")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--resume", type=Path, default=None)

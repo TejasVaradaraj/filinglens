@@ -61,21 +61,30 @@ class BudgetExceeded(RuntimeError):
 
 
 def _ledger_update(add: float = 0.0) -> float:
+    """Read (and optionally add to) the ledger under an exclusive lock.
+
+    Opened read/write (not append) and flushed + fsynced before unlocking: a buffered write
+    that lands after the lock is released lets two writers interleave and corrupt the file.
+    """
     import fcntl
     import json
     LEDGER.parent.mkdir(parents=True, exist_ok=True)
-    with open(LEDGER, "a+") as f:
+    fd = os.open(LEDGER, os.O_RDWR | os.O_CREAT, 0o644)
+    with os.fdopen(fd, "r+") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
-        f.seek(0)
-        raw = f.read()
-        data = json.loads(raw) if raw.strip() else {"total_usd": 0.0, "calls": 0}
-        if add:
-            data["total_usd"] += add
-            data["calls"] += 1
-            f.seek(0)
-            f.truncate()
-            f.write(json.dumps(data))
-        fcntl.flock(f, fcntl.LOCK_UN)
+        try:
+            raw = f.read()
+            data = json.loads(raw) if raw.strip() else {"total_usd": 0.0, "calls": 0}
+            if add:
+                data["total_usd"] += add
+                data["calls"] += 1
+                f.seek(0)
+                f.truncate()
+                f.write(json.dumps(data))
+                f.flush()
+                os.fsync(f.fileno())
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
     return data["total_usd"]
 
 
