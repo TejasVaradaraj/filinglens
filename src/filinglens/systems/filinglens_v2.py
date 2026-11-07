@@ -112,19 +112,19 @@ def _noop(event: str, data) -> None:
     pass
 
 
-def run_pipeline(question: Question, verify_answer: bool = False, emit=None) -> SystemAnswer:
+def run_pipeline(question: Question, verify_answer: bool = False, emit=None, rerank: bool = False) -> SystemAnswer:
     """emit(event, data) is called at each stage (plan, retrieval, values, calculation,
     answer, citations) so the API and CLI can stream progress."""
     from filinglens.verifier import check, repair_prompt
 
     emit = emit or _noop
-    r = retrieve(question.question)
+    r = retrieve(question.question, rerank=rerank)
     emit("plan", {"company": r.plan.company, "fiscal_years": r.plan.fiscal_years, "query": r.query})
     emit("retrieval", {"pages": [{"doc": d, "page": n} for d, n in r.pages]})
     ex = extract(question.question, r.excerpts, r.texts)
     emit("values", [{"id": v.id, "label": v.label, "value": v.value, "unit": v.unit, "scale": v.scale,
                      "period": v.period, "doc": v.doc, "page": v.page, "quote": ex.quotes[v.id]} for v in ex.values])
-    cost = r.plan.cost_usd + ex.cost_usd
+    cost = r.plan.cost_usd + r.rerank_cost + ex.cost_usd
     known: dict[str, Value] = {v.id: v for v in ex.values}
     calcs: list[dict] = []
 

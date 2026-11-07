@@ -27,31 +27,40 @@ class Retrieved:
     query: str
     pages: list[tuple[str, int]]
     texts: dict[tuple[str, int], str]
+    rerank_cost: float = 0.0
 
     @property
     def excerpts(self) -> str:
         return "\n\n".join(f"[{d} | page {n}]\n{self.texts.get((d, n), '')}" for d, n in self.pages)
 
 
-def retrieve(question: str) -> Retrieved:
+def retrieve(question: str, rerank: bool = False) -> Retrieved:
+    """rerank=False: keyword top chunks -> first PAGES distinct pages (v1-v3).
+    rerank=True: keyword top 20 + vector top 20 -> Haiku picks PAGES pages (v4, Phase 6)."""
     p = plan(question)
     filing_ids = candidate_filings(p, "period")
     query = p.search_query or question
-    if SEARCHER == "hybrid":
-        hits = SEARCHERS["hybrid"](question, CHUNKS, filing_ids, keyword_query=query)
+    rerank_cost = 0.0
+    if rerank:
+        from filinglens.retrieval.rerank import candidates
+        from filinglens.retrieval.rerank import rerank as llm_rerank
+        pages, rerank_cost = llm_rerank(question, candidates(question, query, filing_ids), PAGES)
     else:
-        hits = SEARCHERS[SEARCHER](query, CHUNKS, filing_ids)
-    pages: list[tuple[str, int]] = []
-    for h in hits:
-        if (h.doc_name, h.page_num) not in pages:
-            pages.append((h.doc_name, h.page_num))
-    pages = pages[:PAGES]
+        if SEARCHER == "hybrid":
+            hits = SEARCHERS["hybrid"](question, CHUNKS, filing_ids, keyword_query=query)
+        else:
+            hits = SEARCHERS[SEARCHER](query, CHUNKS, filing_ids)
+        pages = []
+        for h in hits:
+            if (h.doc_name, h.page_num) not in pages:
+                pages.append((h.doc_name, h.page_num))
+        pages = pages[:PAGES]
     with db.connect() as conn:
         texts = {(d, n): t for d, n, t in conn.execute(
             """SELECT f.doc_name, p.page_num, p.text_md FROM pages p JOIN filings f ON f.id = p.filing_id
                WHERE (f.doc_name, p.page_num) IN (SELECT * FROM unnest(%s::text[], %s::int[]))""",
             ([d for d, _ in pages], [n for _, n in pages]))}
-    return Retrieved(p, query, pages, texts)
+    return Retrieved(p, query, pages, texts, rerank_cost)
 
 
 def answer(question: Question) -> SystemAnswer:
