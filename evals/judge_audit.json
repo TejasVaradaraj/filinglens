@@ -1,0 +1,28 @@
+{
+ "about": "Second-grader checks of the LLM judge. Second grader: Claude Opus 5.5 (the user delegated hand-checking). Samples from scripts/judge_audit.py (seed 7, 20 judge-scored rows).",
+ "audits": [
+  {
+   "date": "2026-11-07",
+   "run": "20261107T170826Z_oracle_dev",
+   "judge": "haiku-5-5, effort low, 1 vote, rubric v1",
+   "n": 20,
+   "agree": 17,
+   "disagreements": {
+    "financebench_id_00685": "judge incorrect, second grader correct: direction question, conclusion matches gold",
+    "financebench_id_00799": "judge incorrect, second grader correct: direction matches and gold ratios appear in answer",
+    "financebench_id_00735": "judge incorrect, second grader refused: headline is 'Not disclosed'"
+   },
+   "action": "rubric v2 (main conclusion first for yes/no and direction questions; headline refusals count as refused), effort medium, majority of 3 votes"
+  },
+  {
+   "date": "2026-11-07",
+   "run": "naive_rag_dev (first run)",
+   "judge": "haiku-5-5, effort medium, 3 votes, rubric v2",
+   "n": 20,
+   "agree": 20,
+   "disagreements": {},
+   "caveat": "15 of 20 were clear refusals, so this sample is easier than audit 1"
+  }
+ ],
+ "overall": {"n": 40, "agree": 37, "agreement": 0.925}
+}
