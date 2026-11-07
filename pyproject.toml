@@ -9,6 +9,7 @@ dependencies = [
     "fastembed>=0.9.1",
     "numpy>=2.5.4",
     "pdfplumber>=0.11.10",
+    "pgvector>=0.5.1",
     "psycopg[binary]>=3.3.8",
     "pydantic>=2.14.1",
     "pymupdf>=2.1",
