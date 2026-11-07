@@ -20,7 +20,7 @@ from filinglens.edgar import EdgarClient
 # Company name in our database -> SEC CIK. Tickers change (Block: SQ -> XYZ) and acquired
 # companies leave the ticker file (Activision, Foot Locker), so CIKs are pinned here.
 CIKS = {
-    "3M": 66740, "Activision Blizzard": 718877, "Adobe": 796343, "AES Corporation": 874761,
+    "3M": 66740, "Activision Blizzard": 718877, "Apple": 320193, "Adobe": 796343, "AES Corporation": 874761,
     "Amazon": 1018724, "Amcor": 1748790, "AMD": 2488, "American Express": 4962,
     "American Water Works": 1410636, "Best Buy": 764478, "Block": 1512673, "Boeing": 12927,
     "Coca-Cola": 21344, "Corning": 24741, "Costco": 909832, "CVS Health": 64803,

@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -64,16 +65,25 @@ def parse_filing(doc_name: str) -> dict:
             "tables": tables, "parse_seconds": seconds}
 
 
-def store(parsed: dict, digest: str) -> dict:
-    doc = load_documents()[parsed["doc_name"]]
+def financebench_meta(doc_name: str) -> dict:
+    doc = load_documents()[doc_name]
+    return {"doc_name": doc.doc_name, "company": doc.company, "form_type": form_type(doc),
+            "fiscal_year": doc.doc_period, "period": period(doc), "source": "financebench",
+            "source_url": doc.doc_link}
+
+
+def store(parsed: dict, digest: str, meta: dict | None = None) -> dict:
+    """Write one parsed filing (pages, sections, tables) in a single transaction.
+    meta defaults to the FinanceBench document info; EDGAR ingestion passes its own."""
+    meta = meta or financebench_meta(parsed["doc_name"])
     with db.connect() as conn, conn.transaction():
-        conn.execute("DELETE FROM filings WHERE doc_name = %s", (doc.doc_name,))
+        conn.execute("DELETE FROM filings WHERE doc_name = %s", (meta["doc_name"],))
         filing_id = conn.execute(
             """INSERT INTO filings (doc_name, company, form_type, fiscal_year, period, source,
                                     source_url, sha256, n_pages, parser)
-               VALUES (%s, %s, %s, %s, %s, 'financebench', %s, %s, %s, %s) RETURNING id""",
-            (doc.doc_name, doc.company, form_type(doc), doc.doc_period, period(doc),
-             doc.doc_link, digest, parsed["n_pages"], PIPELINE),
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            (meta["doc_name"], meta["company"], meta["form_type"], meta["fiscal_year"], meta["period"],
+             meta["source"], meta["source_url"], digest, parsed["n_pages"], PIPELINE),
         ).fetchone()[0]
         with conn.cursor() as cur:
             cur.executemany("INSERT INTO pages (filing_id, page_num, text_md) VALUES (%s, %s, %s)",
@@ -127,6 +137,39 @@ def ingest(doc_names: list[str], workers: int = 1, force: bool = False) -> dict:
             print(f"  [{i}/{len(todo)}] {name}: {counts['pages']} pages, {counts['sections']} sections, "
                   f"{counts['tables']} tables ({time.perf_counter() - start:.0f}s elapsed)", flush=True)
     return {"ingested": len(todo), "skipped": skipped, **totals}
+
+
+def parse_pages(doc_name: str, pages: list[str], form: str) -> dict:
+    """Sections and tables for already-extracted markdown pages (EDGAR HTML path)."""
+    sections = find_sections(pages, use_parts=form == "10Q")
+    tables = [(p, t) for p in range(len(pages)) for t in page_tables(pages[p])]
+    return {"doc_name": doc_name, "n_pages": len(pages), "pages": pages, "sections": sections,
+            "tables": tables, "parse_seconds": 0.0}
+
+
+def edgar_meta(ref, company: str) -> dict:
+    form = ref.form.replace("-", "")
+    year = int(ref.report_date[:4])
+    q = (int(ref.report_date[5:7]) - 1) // 3 + 1
+    period_ = f"FY{year}" if form == "10K" else f"{year}Q{q}"
+    slug = re.sub(r"[^A-Z0-9]", "", company.upper())
+    return {"doc_name": f"{slug}_{year}{'' if form == '10K' else f'Q{q}'}_{form}_EDGAR", "company": company,
+            "form_type": form, "fiscal_year": year, "period": period_, "source": "edgar", "source_url": ref.url}
+
+
+def ingest_edgar_filing(ref, company: str, client=None, force: bool = False) -> dict:
+    """Download (cached), parse and store one EDGAR filing. Idempotent like ingest()."""
+    from filinglens.edgar import EdgarClient
+    from filinglens.parsing.html import html_to_pages
+    client = client or EdgarClient()
+    path = client.download(ref)
+    meta = edgar_meta(ref, company)
+    digest = sha256(path)
+    if not force and not needs_ingest(meta["doc_name"], digest):
+        return {"doc_name": meta["doc_name"], "skipped": True}
+    pages = html_to_pages(path.read_text(encoding="utf-8", errors="ignore"))
+    counts = store(parse_pages(meta["doc_name"], pages, meta["form_type"]), digest, meta)
+    return {"doc_name": meta["doc_name"], "skipped": False, "sha256": digest, **counts}
 
 
 def main() -> None:

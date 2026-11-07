@@ -34,7 +34,9 @@ def embed_query(text: str) -> np.ndarray:
     return v / np.linalg.norm(v)
 
 
-def chunk_all() -> dict:
+def chunk_all(doc_names: list[str] | None = None) -> dict:
+    """Chunk filings whose chunks are missing or from an older chunker version.
+    doc_names limits it to those filings (what a queue job uses)."""
     with db.connect() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS chunk_index (
                           filing_id INT PRIMARY KEY REFERENCES filings(id) ON DELETE CASCADE,
@@ -42,10 +44,17 @@ def chunk_all() -> dict:
         filings = conn.execute(
             """SELECT f.id, f.doc_name, f.company, f.form_type, f.period FROM filings f
                LEFT JOIN chunk_index c ON c.filing_id = f.id
-               WHERE c.version IS DISTINCT FROM %s ORDER BY f.doc_name""", (CHUNKER_VERSION,)).fetchall()
+               WHERE c.version IS DISTINCT FROM %s AND (%s::text[] IS NULL OR f.doc_name = ANY(%s::text[]))
+               ORDER BY f.doc_name""", (CHUNKER_VERSION, doc_names, doc_names)).fetchall()
     total = 0
     for filing_id, doc_name, company, form, period in filings:
         with db.connect() as conn, conn.transaction():
+            # One writer per filing: without this, two workers interleave delete + insert and
+            # duplicate every chunk (seen in the first queue run).
+            conn.execute("SELECT pg_advisory_xact_lock(%s)", (filing_id,))
+            done = conn.execute("SELECT version FROM chunk_index WHERE filing_id = %s", (filing_id,)).fetchone()
+            if done and done[0] == CHUNKER_VERSION:
+                continue  # another worker finished it while we waited
             sections = conn.execute("SELECT id, item, title, start_page, end_page FROM sections "
                                     "WHERE filing_id = %s ORDER BY start_page", (filing_id,)).fetchall()
             tables = {(p, i): (tid, title) for tid, p, i, title in conn.execute(
@@ -74,16 +83,21 @@ def chunk_all() -> dict:
     return {"filings_chunked": len(filings), "chunks_written": total}
 
 
-def embed_all() -> None:
+def embed_all(doc_names: list[str] | None = None) -> None:
+    """Embed chunks that have no vector. Batches are claimed with FOR UPDATE SKIP LOCKED inside
+    the transaction that writes them, so parallel embedders split the work."""
+    flt = "(%(docs)s::text[] IS NULL OR filing_id IN (SELECT id FROM filings WHERE doc_name = ANY(%(docs)s::text[])))"
     with db.connect() as conn:
-        todo = conn.execute("SELECT count(*) FROM chunks WHERE embedding IS NULL").fetchone()[0]
+        todo = conn.execute(f"SELECT count(*) FROM chunks WHERE embedding IS NULL AND {flt}",
+                            {"docs": doc_names}).fetchone()[0]
     print(f"embed: {todo} chunks without embeddings", flush=True)
     done, start = 0, time.perf_counter()
     while True:
         with db.connect() as conn:
             register_vector(conn)
-            batch = conn.execute("SELECT id, text FROM chunks WHERE embedding IS NULL ORDER BY id LIMIT %s",
-                                 (BATCH,)).fetchall()
+            batch = conn.execute(f"""SELECT id, text FROM chunks WHERE embedding IS NULL AND {flt}
+                                     ORDER BY id LIMIT %(n)s FOR UPDATE SKIP LOCKED""",
+                                 {"docs": doc_names, "n": BATCH}).fetchall()
             if not batch:
                 break
             vecs = np.array(list(embedder().embed([t for _, t in batch], batch_size=16)), dtype=np.float32)
@@ -93,7 +107,7 @@ def embed_all() -> None:
                                 [(v, cid) for (cid, _), v in zip(batch, vecs)])
         done += len(batch)
         rate = done / (time.perf_counter() - start)
-        print(f"  embedded {done}/{todo} ({rate:.1f}/s, ~{(todo - done) / rate / 60:.0f} min left)", flush=True)
+        print(f"  embedded {done}/{todo} ({rate:.1f}/s, ~{max(todo - done, 0) / rate / 60:.0f} min left)", flush=True)
 
 
 def status() -> None:
