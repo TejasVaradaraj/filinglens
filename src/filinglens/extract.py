@@ -63,6 +63,7 @@ class Extraction:
     values: list[Value]
     quotes: dict[str, str]
     dropped: list[dict] = field(default_factory=list)
+    repaired: dict[str, str] = field(default_factory=dict)   # value id -> originally cited page
     missing: str = ""
     cost_usd: float = 0.0
 
@@ -83,17 +84,35 @@ def _digits(x: float) -> set[str]:
     return {f.rstrip("0").rstrip(".") if "." in f else f for f in forms} | forms
 
 
+def _quote_on_page(quote: str, page: str) -> bool:
+    q, p = _norm(quote), _norm(page)
+    if not q:
+        return False
+    if q in p or q.replace(" ", "") in p.replace(" ", ""):
+        return True
+    # Tolerate cell separators trimmed differently: nearly every quote token must be on the page.
+    p_nospace = p.replace(" ", "")
+    tokens = [t for t in q.split() if len(t) > 2]
+    return bool(tokens) and sum(t in p_nospace for t in tokens) / len(tokens) >= 0.9
+
+
 def verify(v: dict, pages: dict[tuple[str, int], str]) -> str | None:
-    """None if the value checks out against its page, else the reason it fails."""
+    """None if the value checks out against a provided page, else the reason it fails.
+
+    If the quote is on a different provided page than the one cited, the citation is
+    repaired in place (v["page"] / v["doc"] updated, v["repaired_from"] set).
+    """
     page = pages.get((v["doc"], v["page"]))
-    if page is None:
-        return f"page {v['doc']} p{v['page']} was not in the excerpts"
-    quote, page_n = _norm(v["quote"]), _norm(page)
-    if not quote or quote not in page_n:
-        # Tolerate the model trimming cell separators differently: every quote token must be on the page.
-        tokens = [t for t in quote.split() if len(t) > 2]
-        if not tokens or sum(t in page_n for t in tokens) / len(tokens) < 0.9:
-            return "quote not found on the cited page"
+    if page is None or not _quote_on_page(v["quote"], page):
+        found = next((key for key, text in pages.items() if _quote_on_page(v["quote"], text)), None)
+        if found is None:
+            return ("quote not found on the cited page" if page is not None
+                    else f"page {v['doc']} p{v['page']} was not in the excerpts and the quote is on no provided page")
+        v["repaired_from"] = f"{v['doc']} p{v['page']}"
+        v["doc"], v["page"] = found
+    quote = _norm(v["quote"])
+    if v["value"] == 0 and re.search(r"(?:^|[\s|])[-—–](?:$|[\s|])|\bnil\b|\bnone\b", v["quote"].replace("**", "")):
+        return None  # a dash in a statement column means zero
     if not any(d in quote.replace(" ", "") or d in quote for d in _digits(v["value"])):
         nums = [parse_number(t) for t in re.findall(r"\(?-?[\d,]+\.?\d*\)?", v["quote"])]
         if not any(n is not None and abs(abs(n) - abs(v["value"])) < 1e-9 for n in nums):
@@ -105,7 +124,7 @@ def extract(question: str, excerpts: str, pages: dict[tuple[str, int], str]) -> 
     prompt = f"Filing excerpts:\n\n{excerpts}\n\nQuestion: {question}"
     result = llm.complete(prompt, system=EXTRACT_SYSTEM, json_schema=EXTRACTION_SCHEMA, max_tokens=8000)
     data = json.loads(result.text)
-    values, quotes, dropped = [], {}, []
+    values, quotes, dropped, repaired = [], {}, [], {}
     for i, v in enumerate(data["values"], 1):
         v["id"] = f"v{i}"  # renumber: ids must be unique and predictable
         reason = verify(v, pages)
@@ -115,4 +134,6 @@ def extract(question: str, excerpts: str, pages: dict[tuple[str, int], str]) -> 
         values.append(Value(v["id"], v["label"], float(v["value"]), v["unit"], v["scale"], v["period"],
                             v["doc"], v["page"]))
         quotes[v["id"]] = v["quote"]
-    return Extraction(values, quotes, dropped, data["missing"], result.cost_usd)
+        if "repaired_from" in v:
+            repaired[v["id"]] = v["repaired_from"]
+    return Extraction(values, quotes, dropped, repaired, data["missing"], result.cost_usd)

@@ -110,6 +110,43 @@ chunks -> top 5 full pages -> Haiku.
 - Tests now use a separate `filinglens_test` database (an ingestion test had been
   re-ingesting a filing in the dev database, which cascade-deleted its chunks).
 
+## Phase 4: exact numbers, math in Python (2026-11-07)
+
+**Error analysis first** (filinglens_v1's 14 wrong answers on dev): 4 retrieval misses, 3 metric
+definitions differing from gold (quick ratio, "operating" working capital), 2 sign/period
+misreads, 2 hedged conclusions, 3 reading errors or debatable gold (Pfizer's Upjohn spin-off
+completed in 2020; gold says it is ongoing). Arithmetic itself was almost never wrong.
+
+**Built:** `calc.py` (scale normalization, unit checks, 7 operations, formatting),
+`extract.py` (typed values via structured outputs; every value's quote and digits are checked
+against the pages, wrong page citations repaired, unverifiable values dropped), and
+`filinglens_v2` (answer writer can only do math through a strict `calculate` tool on value ids).
+
+**Head-to-head with identical retrieval** (planner outputs cached by question; dev, 100 q):
+
+| System | Accuracy | Refused | Hallucination | Cost/q | p95 latency |
+|---|---:|---:|---:|---:|---:|
+| filinglens_v1 (Haiku does everything) | 61% | 22% | 17% | $0.0008 | 3.6 s |
+| filinglens_v2, first run | 57% | 26% | 17% | $0.0027 | 20.1 s |
+| filinglens_v2 (no "missing" priming) | 62% | 19% | 19% | $0.0026 | 11.4 s |
+| filinglens_v2 (+ verification fixes) | 62% | 18% | 20% | $0.0026 | 11.2 s |
+
+- **Accuracy: a tie.** As the error analysis predicted, moving arithmetic to Python can't fix
+  much when the model's arithmetic was already right. By question type: metrics 26 -> 27,
+  domain 18 -> 18, novel 17 -> 17. v1 vs v2 differ by about +/-2 points run to run.
+- **What v2 adds is auditability:** ~270 typed values per dev run, each tied to an exact quote
+  and page; every derived number comes from the calculator (used on ~41% of questions) with its
+  formula. This is the foundation for Phase 5's citation checker.
+- **First v2 run lost 5 points** because the extractor's pessimistic "missing" note primed the
+  answer writer to refuse questions the excerpts could answer. Removed from the prompt.
+- **Verification false alarms fixed:** of 12 dropped values in the first clean run only 1 was a
+  real catch. Fixed: a dash means zero (4), wrong page number repaired when the quote is on
+  another provided page (5), whitespace-insensitive matching (2).
+- **Rate limit:** the org limit is 500K input tokens/min for Haiku; v2 makes 3+ calls per
+  question, so evals run with 3-4 workers.
+- Hallucination did not drop (17% -> 19-20%, within noise). The wrong answers are mostly
+  definitions and judgment calls, which Phase 5 (verifier, refusal calibration) targets.
+
 ### Notes
 - **Judge audit #1 (oracle run, 20 judged answers, graded by Claude Opus 5.5 as second grader):**
   17/20 agreement. All 3 disagreements were the judge being too strict (2 direction questions)

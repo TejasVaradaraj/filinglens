@@ -105,7 +105,13 @@ Folder: `~/Desktop/filinglens`. Public repo: https://github.com/TejasVaradaraj/f
 - System `filinglens_v1`: 62% on dev at $0.0009/q (naive 28%, oracle 88%, long context 90% at $0.075/q).
 - Tests use a separate `filinglens_test` database.
 
-**Next: Phase 4 (exact numbers, math in Python):** Pydantic schema for extracted values, structured outputs, tested calculator with unit normalization, tool use. Target: the 14% hallucinations (wrong numbers/units/math).
+**Phase 4 done (2026-11-07), branch `phase-4-numbers`:**
+- `calc.py` calculator, `extract.py` verified extraction (structured outputs + quote/page checks + citation repair), system `filinglens_v2` (strict `calculate` tool).
+- Planner outputs cached by question in data/cache/plan_cache.json so all systems share retrieval.
+- Result: v2 62% vs v1 61% with identical retrieval (a tie; arithmetic wasn't the problem). v2 costs $0.0026/q, p95 11 s. Kept v2 as the base because every number is traceable.
+- Eval workers: 3-4 (org rate limit 500K input tokens/min).
+
+**Next: Phase 5 (answers, citations, refusal):** citation verifier on the final answer (every number must be a cited value/result), calibrated refusal + over-refusal measurement, own "not disclosed" question set, FastAPI streaming endpoint, CLI with show-work.
 
 ---
 

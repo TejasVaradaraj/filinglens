@@ -118,7 +118,8 @@ def answer(question: Question) -> SystemAnswer:
         text = "Not disclosed in the provided filing. (Stopped: too many calculation steps.)"
 
     return SystemAnswer(text, cost, in_tok, out_tok, retrieved_pages=r.pages, notes={
-        "values": [{**v.__dict__, "quote": ex.quotes[v.id]} for v in ex.values],
+        "values": [{**v.__dict__, "quote": ex.quotes[v.id], "repaired_from": ex.repaired.get(v.id)}
+                   for v in ex.values],
         "dropped_values": ex.dropped, "calculations": calcs, "missing": ex.missing,
         "company": r.plan.company, "query": r.query,
     })
