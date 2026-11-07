@@ -59,8 +59,18 @@ def load_documents() -> dict[str, Document]:
     return {r["doc_name"]: Document(**r) for r in rows}
 
 
+NOT_DISCLOSED = "NOT_DISCLOSED"  # gold answer for questions the filings can't answer
+
+
+def load_own() -> list[Question]:
+    """Our own questions (evals/own_questions.jsonl): unanswerable ones with gold NOT_DISCLOSED."""
+    return [Question(**r) for r in _read_jsonl(config.EVALS_DIR / "own_questions.jsonl")]
+
+
 def load_split(name: str) -> list[Question]:
-    """Questions in the 'dev' or 'test' split (see scripts/make_split.py)."""
+    """Questions in the 'dev' or 'test' split (see scripts/make_split.py), or 'own'."""
+    if name == "own":
+        return load_own()
     split = json.loads((config.EVALS_DIR / "splits.json").read_text())
     ids = set(split[name])
     return [q for q in load_questions() if q.id in ids]

@@ -12,6 +12,7 @@ _REGISTRY = {
     "naive_rag": "filinglens.systems.naive_rag:answer",
     "filinglens_v1": "filinglens.systems.filinglens_v1:answer",
     "filinglens_v2": "filinglens.systems.filinglens_v2:answer",
+    "filinglens_v3": "filinglens.systems.filinglens_v3:answer",
 }
 
 

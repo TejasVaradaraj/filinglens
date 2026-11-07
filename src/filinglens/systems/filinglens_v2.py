@@ -72,29 +72,18 @@ def _values_table(values: list[Value], quotes: dict[str, str]) -> str:
         for v in values) or "(none)"
 
 
-def answer(question: Question) -> SystemAnswer:
-    r = retrieve(question.question)
-    ex = extract(question.question, r.excerpts, r.texts)
-    cost = r.plan.cost_usd + ex.cost_usd
-    known: dict[str, Value] = {v.id: v for v in ex.values}
-    calcs: list[dict] = []
-
-    # The extractor's "missing" note is kept in notes but not shown to the answer writer:
-    # in the first v2 run it primed refusals on questions the excerpts could answer.
-    user = (f"VERIFIED VALUES:\n{_values_table(ex.values, ex.quotes)}\n\n"
-            f"Filing excerpts:\n\n{r.excerpts}\n\nQuestion: {question.question}")
-    messages: list = [{"role": "user", "content": user}]
-    text, in_tok, out_tok = "", 0, 0
+def _tool_loop(messages: list, known: dict[str, Value], calcs: list[dict], emit=None) -> tuple[str, float, int, int]:
+    """Run the answer writer until it stops calling `calculate`. Returns (text, cost, in, out)."""
+    cost, in_tok, out_tok = 0.0, 0, 0
     for _ in range(MAX_TURNS):
         response, c = llm.chat(messages, ANSWER_SYSTEM, [CALC_TOOL])
         cost += c
         in_tok += response.usage.input_tokens
         out_tok += response.usage.output_tokens
+        messages.append({"role": "assistant", "content": response.content})
         tool_uses = [b for b in response.content if b.type == "tool_use"]
         if not tool_uses:
-            text = "".join(b.text for b in response.content if b.type == "text").strip()
-            break
-        messages.append({"role": "assistant", "content": response.content})
+            return "".join(b.text for b in response.content if b.type == "text").strip(), cost, in_tok, out_tok
         results = []
         for tu in tool_uses:
             args = tu.input
@@ -105,21 +94,76 @@ def answer(question: Question) -> SystemAnswer:
                 # Results are stored in base units so they can feed later calculations.
                 known[rid] = Value(rid, res.formula, res.value, res.unit, "units",
                                    "/".join(sorted({v.period for v in vals})))
-                calcs.append({"id": rid, "operation": res.operation, "inputs": res.inputs,
+                calcs.append({"id": rid, "operation": res.operation, "inputs": res.inputs, "unit": res.unit,
                               "formula": res.formula, "value": res.value, "text": res.text})
                 content, is_error = json.dumps({"id": rid, "result": res.text, "formula": res.formula}), False
+                if emit:
+                    emit("calculation", calcs[-1])
             except KeyError as e:
                 content, is_error = f"Unknown id {e}. Use ids from VERIFIED VALUES or earlier results.", True
             except CalcError as e:
                 content, is_error = str(e), True
             results.append({"type": "tool_result", "tool_use_id": tu.id, "content": content, "is_error": is_error})
         messages.append({"role": "user", "content": results})
-    else:
-        text = "Not disclosed in the provided filing. (Stopped: too many calculation steps.)"
+    return "Not disclosed in the provided filing. (Stopped: too many calculation steps.)", cost, in_tok, out_tok
 
-    return SystemAnswer(text, cost, in_tok, out_tok, retrieved_pages=r.pages, notes={
+
+def _noop(event: str, data) -> None:
+    pass
+
+
+def run_pipeline(question: Question, verify_answer: bool = False, emit=None) -> SystemAnswer:
+    """emit(event, data) is called at each stage (plan, retrieval, values, calculation,
+    answer, citations) so the API and CLI can stream progress."""
+    from filinglens.verifier import check, repair_prompt
+
+    emit = emit or _noop
+    r = retrieve(question.question)
+    emit("plan", {"company": r.plan.company, "fiscal_years": r.plan.fiscal_years, "query": r.query})
+    emit("retrieval", {"pages": [{"doc": d, "page": n} for d, n in r.pages]})
+    ex = extract(question.question, r.excerpts, r.texts)
+    emit("values", [{"id": v.id, "label": v.label, "value": v.value, "unit": v.unit, "scale": v.scale,
+                     "period": v.period, "doc": v.doc, "page": v.page, "quote": ex.quotes[v.id]} for v in ex.values])
+    cost = r.plan.cost_usd + ex.cost_usd
+    known: dict[str, Value] = {v.id: v for v in ex.values}
+    calcs: list[dict] = []
+
+    # The extractor's "missing" note is kept in notes but not shown to the answer writer:
+    # in the first v2 run it primed refusals on questions the excerpts could answer.
+    user = (f"VERIFIED VALUES:\n{_values_table(ex.values, ex.quotes)}\n\n"
+            f"Filing excerpts:\n\n{r.excerpts}\n\nQuestion: {question.question}")
+    messages: list = [{"role": "user", "content": user}]
+    text, c, in_tok, out_tok = _tool_loop(messages, known, calcs, emit)
+    cost += c
+
+    report, repaired = None, False
+    if verify_answer:
+        page_texts = [r.texts.get(k, "") for k in r.pages]
+        report = check(text, known, page_texts)
+        if report.unsupported:
+            messages.append({"role": "user", "content": repair_prompt(report)})
+            emit("repair", {"unsupported": [x.text for x in report.unsupported]})
+            new_text, c, i2, o2 = _tool_loop(messages, known, calcs, emit)
+            cost, in_tok, out_tok = cost + c, in_tok + i2, out_tok + o2
+            new_report = check(new_text, known, page_texts)
+            if len(new_report.unsupported) <= len(report.unsupported):
+                text, report, repaired = new_text, new_report, True
+
+    emit("answer", {"text": text})
+    if report is not None:
+        emit("citations", {"precision": report.precision,
+                           "numbers": [{"text": x.text, "ok": x.ok, "source": x.reason} for x in report.checks]})
+    notes = {
         "values": [{**v.__dict__, "quote": ex.quotes[v.id], "repaired_from": ex.repaired.get(v.id)}
                    for v in ex.values],
         "dropped_values": ex.dropped, "calculations": calcs, "missing": ex.missing,
         "company": r.plan.company, "query": r.query,
-    })
+    }
+    if report is not None:
+        notes["citation_check"] = {"precision": report.precision, "repair_round": repaired,
+                                   "numbers": [{"text": c.text, "ok": c.ok, "reason": c.reason} for c in report.checks]}
+    return SystemAnswer(text, cost, in_tok, out_tok, retrieved_pages=r.pages, notes=notes)
+
+
+def answer(question: Question) -> SystemAnswer:
+    return run_pipeline(question)

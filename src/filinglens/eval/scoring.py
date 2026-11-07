@@ -40,7 +40,8 @@ _NUMBER = re.compile(
 _REFUSAL = re.compile(
     r"not (?:disclosed|provided|available|stated|reported|found|possible to determine)"
     r"|cannot (?:be )?determine|can't determine|unable to determine|insufficient information"
-    r"|does not (?:disclose|provide|contain|include|specify)|no information",
+    r"|(?:does|do|did) not (?:disclose|provide|contain|include|specify|break out|report)|no information"
+    r"|not (?:in|covered by) (?:the|our|this) (?:database|filings)|no filings? (?:for|from|covering)",
     re.IGNORECASE,
 )
 
@@ -156,6 +157,11 @@ def parse_judge_reply(text: str) -> tuple[str, str]:
 
 
 def score(question: str, gold: str, prediction: str) -> Score:
+    if gold == "NOT_DISCLOSED":
+        # Unanswerable question: the only correct behavior is to refuse, in the headline.
+        refused = looks_like_refusal(prediction[:300])
+        return Score("correct" if refused else "incorrect", "refusal",
+                     "refused as expected" if refused else "answered an unanswerable question")
     if not prediction.strip():
         return Score("incorrect", "numeric", "empty answer")
     if is_numeric_answer(gold):

@@ -60,3 +60,16 @@ def test_majority_vote_and_strict_ties():
     assert scoring.majority(["correct", "correct", "incorrect"]) == "correct"
     assert scoring.majority(["correct", "refused", "incorrect"]) == "incorrect"
     assert scoring.majority(["refused", "correct"]) == "refused"
+
+
+def test_not_disclosed_gold_requires_refusal():
+    assert scoring.score("q", "NOT_DISCLOSED", "Not disclosed in the provided filing.").verdict == "correct"
+    assert scoring.score("q", "NOT_DISCLOSED", "Tesla is not in the database, so I can't answer.").verdict == "correct"
+    assert scoring.score("q", "NOT_DISCLOSED", "Revenue was $81,462 million.").verdict == "incorrect"
+
+
+def test_refusal_phrasings():
+    for text in ["The filing excerpts do not disclose the average credit score.",
+                 "The excerpts did not break out advertising spend by platform.",
+                 "Not disclosed in the provided filing."]:
+        assert scoring.looks_like_refusal(text), text
