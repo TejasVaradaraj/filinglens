@@ -69,7 +69,7 @@ QUERY (per question)
 
 ## 4. Current state of the repo (as of 2026-11-07)
 
-Folder: `~/Desktop/filinglens`, git repo, not on GitHub yet.
+Folder: `~/Desktop/filinglens`. Public repo: https://github.com/TejasVaradaraj/filinglens (commits use the GitHub no-reply email; repo-local `user.email` is set to it).
 
 **Environment gotchas (important):**
 - The Desktop is iCloud-synced. iCloud offloads files inside `.venv` and Python hangs reading them. Always run with the venv outside iCloud: `export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/filinglens"` (add it to `~/.zshrc`).
@@ -95,7 +95,7 @@ Folder: `~/Desktop/filinglens`, git repo, not on GitHub yet.
 - `python -m filinglens.edgar TICKER --forms 10-K --limit N`: SEC downloader (needs SEC_USER_AGENT in .env).
 - 73 tests.
 
-**Not done / blocked:** GitHub push (auto-mode classifier blocked `gh repo create`; user to approve or create the repo). Own question file moved to Phase 5.
+**Not done:** own question file moved to Phase 5.
 
 **Phase 3 done (2026-11-07), branch `phase-3-retrieval`:**
 - `python -m filinglens.retrieval.index chunk|embed|status`; 54,479 chunks, all embedded (bge-small, 384-d).
