@@ -46,12 +46,20 @@ def complete(
     system: str | None = None,
     effort: str = config.DEFAULT_EFFORT,
     max_tokens: int = 4000,
+    json_schema: dict | None = None,
 ) -> LLMResult:
-    """Send one user message and return the text answer plus usage and cost."""
+    """Send one user message and return the text answer plus usage and cost.
+
+    With json_schema, the API constrains the reply to valid JSON matching the
+    schema (structured outputs), so `json.loads(result.text)` always works.
+    """
+    output_config: dict = {"effort": effort}
+    if json_schema:
+        output_config["format"] = {"type": "json_schema", "schema": json_schema}
     kwargs = dict(
         model=config.MODEL,
         max_tokens=max_tokens,
-        output_config={"effort": effort},
+        output_config=output_config,
         messages=[{"role": "user", "content": user}],
     )
     if system:
@@ -71,3 +79,14 @@ def complete(
         stop_reason=response.stop_reason,
         raw=response,
     )
+
+
+def chat(messages: list, system: str, tools: list, effort: str = config.DEFAULT_EFFORT,
+         max_tokens: int = 4000) -> tuple[object, float]:
+    """One turn of a tool-use conversation. Returns (raw response, cost in USD)."""
+    response = client().messages.create(
+        model=config.MODEL, max_tokens=max_tokens, output_config={"effort": effort},
+        system=system, tools=tools, messages=messages,
+    )
+    usage = response.usage
+    return response, cost_usd(usage.input_tokens, usage.output_tokens)

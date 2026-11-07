@@ -7,13 +7,20 @@ then maps that onto filing ids, from strict (exact period) to loose (company onl
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from functools import lru_cache
+from threading import Lock
 
 from pydantic import BaseModel, ValidationError
 
-from filinglens import db, llm
+from filinglens import config, db, llm
+
+# Plans are cached by question text, so every system and every run sees the same
+# retrieval. Without this, planner randomness makes system comparisons noisy.
+PLAN_CACHE = config.CACHE_DIR / "plan_cache.json"
+_cache_lock = Lock()
 
 
 class Plan(BaseModel):
@@ -45,7 +52,28 @@ Annual metrics come from 10K; quarter questions from 10Q (or EARNINGS); events l
 dividends announced or acquisitions closed may be in 8K. If unsure about forms, return []."""
 
 
-def plan(question: str) -> Plan:
+def _key(question: str) -> str:
+    return hashlib.sha256((PLANNER_SYSTEM + question).encode()).hexdigest()[:24]
+
+
+def plan(question: str, use_cache: bool = True) -> Plan:
+    key = _key(question)
+    if use_cache:
+        with _cache_lock:
+            cache = json.loads(PLAN_CACHE.read_text()) if PLAN_CACHE.exists() else {}
+        if key in cache:
+            return Plan(**{**cache[key], "cost_usd": 0.0})
+    p = _plan_uncached(question)
+    if use_cache:
+        with _cache_lock:
+            cache = json.loads(PLAN_CACHE.read_text()) if PLAN_CACHE.exists() else {}
+            cache[key] = p.model_dump()
+            PLAN_CACHE.parent.mkdir(parents=True, exist_ok=True)
+            PLAN_CACHE.write_text(json.dumps(cache))
+    return p
+
+
+def _plan_uncached(question: str) -> Plan:
     prompt = f"Companies in the database:\n{json.dumps(list(companies()))}\n\nQuestion: {question}"
     cost = 0.0
     for _ in range(2):  # one retry on malformed output
