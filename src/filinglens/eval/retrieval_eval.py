@@ -40,14 +40,15 @@ def page_hit(gold: set[tuple[str, int]], hits, k: int, slack: int = 0) -> bool:
 def query_for(q: Question, p: Plan, mode: str) -> str:
     """raw = the question as asked; rewrite = planner's query; both = question + rewrite."""
     return {"raw": q.question, "rewrite": p.search_query or q.question,
-            "both": f"{q.question} {p.search_query}"}[mode]
+            "both": f"{q.question} {p.search_query}", "mixed": q.question}[mode]
 
 
 def evaluate(questions, plans, searcher: str, filt: str, query: str = "raw") -> dict:
     fn = SEARCHERS[searcher]
 
     def one(q):
-        hits = fn(query_for(q, plans[q.id], query), max(KS), candidate_filings(plans[q.id], filt))
+        extra = {"keyword_query": plans[q.id].search_query or q.question} if query == "mixed" else {}
+        hits = fn(query_for(q, plans[q.id], query), max(KS), candidate_filings(plans[q.id], filt), **extra)
         gold = {(e.doc_name, e.evidence_page_num) for e in q.evidence}
         return {
             **{f"page@{k}": page_hit(gold, hits, k) for k in KS},
@@ -65,7 +66,8 @@ def main() -> None:
     ap.add_argument("--split", default="dev")
     ap.add_argument("--searchers", nargs="+", default=list(SEARCHERS))
     ap.add_argument("--filters", nargs="+", default=["none", "company", "period"])
-    ap.add_argument("--queries", nargs="+", default=["raw"], choices=["raw", "rewrite", "both"])
+    ap.add_argument("--queries", nargs="+", default=["raw"], choices=["raw", "rewrite", "both", "mixed"],
+                    help="mixed (hybrid only): vector gets the raw question, keyword gets the rewrite")
     args = ap.parse_args()
     questions = load_split(args.split)
     plans = cached_plans(questions)

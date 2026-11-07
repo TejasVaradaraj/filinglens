@@ -82,8 +82,13 @@ def rrf(lists: list[list[Hit]], k: int) -> list[Hit]:
     return [Hit(**{**best[c].__dict__, "score": scores[c]}) for c in ranked]
 
 
-def hybrid_search(query: str, k: int = 10, filing_ids: list[int] | None = None) -> list[Hit]:
-    return rrf([vector_search(query, CANDIDATES, filing_ids), keyword_search(query, CANDIDATES, filing_ids)], k)
+def hybrid_search(query: str, k: int = 10, filing_ids: list[int] | None = None,
+                  keyword_query: str | None = None) -> list[Hit]:
+    """Vector and keyword results fused by RRF. Each ranker can get its own query:
+    embeddings do best on the question as asked, keyword search on a rewrite that
+    uses the filing's exact line-item names (see the Phase 3 ablation)."""
+    return rrf([vector_search(query, CANDIDATES, filing_ids),
+                keyword_search(keyword_query or query, CANDIDATES, filing_ids)], k)
 
 
 SEARCHERS = {"vector": vector_search, "keyword": keyword_search, "hybrid": hybrid_search}

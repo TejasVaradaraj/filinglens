@@ -54,6 +54,62 @@ normalizer needs, and cut hallucinations by a third vs plain text.
   cells; "Item 4A" blocking later items; 10-Q Part II with no PART heading; footnote markers
   and `<sup>$</sup>` inside numeric cells.
 
+## Phase 3: retrieval (2026-11-07)
+
+- 54,479 structure-aware chunks (tables never split from title/header; context line with
+  company, form, period, section, page). Embeddings: bge-small (same as naive RAG, so the
+  ablation isolates chunking/search/filters). 8K chunks embedded on the M1 (~11/s), the other
+  46K on a **Colab A100 in 87 s (535/s, 0.22 compute units)**; GPU and local vectors agree
+  exactly on 200 check chunks (min cosine 1.00000).
+- Planner (Haiku, $0.0001/q): company + fiscal period + forms from the question text only
+  (never FinanceBench's doc_name), plus a rewrite of the question into filing vocabulary.
+
+**Retrieval ablation, dev (100 q). page@k = gold evidence page in the top k chunks.**
+
+| Searcher | Filter | Query | page@1 | page@5 | page@10 | page±1@5 | right filing@5 |
+|---|---|---|---:|---:|---:|---:|---:|
+| naive RAG (Phase 1) | none | raw | – | 18% | – | 28% | 83% |
+| vector | none | raw | 11% | 27% | 42% | 33% | 87% |
+| vector | company | raw | 11% | 28% | 43% | 34% | 92% |
+| vector | period | raw | 17% | 38% | 47% | 44% | 98% |
+| vector | period | rewrite | 15% | 37% | 47% | 45% | 97% |
+| keyword | none | raw | 0% | 2% | 4% | 2% | 46% |
+| keyword | company | raw | 3% | 18% | 27% | 22% | 88% |
+| keyword | period | raw | 12% | 28% | 37% | 33% | 95% |
+| keyword | company | rewrite | 16% | 47% | 57% | 58% | 89% |
+| **keyword** | **period** | **rewrite** | **31%** | **63%** | **75%** | **74%** | **96%** |
+| hybrid (RRF, same query) | period | rewrite | 19% | 46% | 60% | 58% | 96% |
+| hybrid (vector raw + keyword rewrite) | period | mixed | 27% | 58% | 69% | 65% | 97% |
+
+What each piece did:
+- **Structure-aware chunks** (vector, no filter): page@5 18% -> 27%.
+- **Metadata filters** matter most for keyword search (2% -> 28%) and still help vectors (27% -> 38%).
+- **Query rewriting** is the single biggest lever for keyword search (28% -> 63%) and does nothing
+  for vectors (38% -> 37%): embeddings already map "capex" near "purchases of PP&E", exact-word
+  search needs the filing's own words.
+- **Hybrid didn't beat keyword alone** with this small embedding model: RRF gives the weaker
+  vector list equal weight. Revisit with a reranker (Phase 7).
+
+**End-to-end (dev, 100 q):** filinglens_v1 = planner -> keyword(rewrite, period filter) top 10
+chunks -> top 5 full pages -> Haiku.
+
+| System | Accuracy | Refused | Hallucination | Cost/q | p95 latency |
+|---|---:|---:|---:|---:|---:|
+| naive RAG | 28% | 61% | 11% | $0.0005 | 3.2 s |
+| **filinglens_v1** | **62%** | 24% | 14% | **$0.0009** | 4.6 s |
+| long context (20 q) | 90% | 0% | 10% | $0.075 | 161 s |
+| oracle (gold pages) | 88% | 0% | 12% | $0.0003 | 3.1 s |
+
+- Context size check: 8 pages from 20 chunks gave 63% / 21% refused / 16% hallucination at
+  $0.0014/q. +1 point is noise, but hallucination rose and cost +44%: more pages bring more
+  numbers to latch onto wrongly. **Kept 5 pages.**
+- filinglens_v1 closes 57% of the gap between naive RAG and the oracle at 1/80th of long
+  context's cost and 1/35th of its p95 latency. Remaining gap: page recall@5 is 63%, so most
+  failures are refusals after a retrieval miss. Next levers: a reranker (Phase 7) and the
+  Phase 4/5 extraction + verification pipeline for the hallucinations.
+- Tests now use a separate `filinglens_test` database (an ingestion test had been
+  re-ingesting a filing in the dev database, which cascade-deleted its chunks).
+
 ### Notes
 - **Judge audit #1 (oracle run, 20 judged answers, graded by Claude Opus 5.5 as second grader):**
   17/20 agreement. All 3 disagreements were the judge being too strict (2 direction questions)

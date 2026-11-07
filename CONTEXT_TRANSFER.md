@@ -97,7 +97,15 @@ Folder: `~/Desktop/filinglens`, git repo, not on GitHub yet.
 
 **Not done / blocked:** GitHub push (auto-mode classifier blocked `gh repo create`; user to approve or create the repo). Own question file moved to Phase 5.
 
-**Next: Phase 3 (retrieval):** section/table-aware chunks into `chunks`, local embeddings in pgvector, BM25 via Postgres full-text, metadata filters, hybrid RRF, recall@k in the eval, ablation table. Target: close the gap between naive RAG (28%) and oracle (88%).
+**Phase 3 done (2026-11-07), branch `phase-3-retrieval`:**
+- `python -m filinglens.retrieval.index chunk|embed|status`; 54,479 chunks, all embedded (bge-small, 384-d).
+- Heavy compute goes to Colab: `python -m filinglens.retrieval.remote_embed export` -> `colab new --gpu A100`, upload chunks.jsonl + scripts/colab_embed.py, exec, download embeddings.npz, `colab stop` -> `remote_embed import` (checks GPU vs local agreement).
+- Planner (`retrieval/planner.py`): company/period filter + query rewrite. Plans cached in data/cache/plans_v2.json.
+- `python -m filinglens.eval.retrieval_eval`: recall@k ablation. Best: keyword + period filter + rewrite (page@5 63%).
+- System `filinglens_v1`: 62% on dev at $0.0009/q (naive 28%, oracle 88%, long context 90% at $0.075/q).
+- Tests use a separate `filinglens_test` database.
+
+**Next: Phase 4 (exact numbers, math in Python):** Pydantic schema for extracted values, structured outputs, tested calculator with unit normalization, tool use. Target: the 14% hallucinations (wrong numbers/units/math).
 
 ---
 
