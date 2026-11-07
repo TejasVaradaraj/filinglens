@@ -111,7 +111,14 @@ Folder: `~/Desktop/filinglens`. Public repo: https://github.com/TejasVaradaraj/f
 - Result: v2 62% vs v1 61% with identical retrieval (a tie; arithmetic wasn't the problem). v2 costs $0.0026/q, p95 11 s. Kept v2 as the base because every number is traceable.
 - Eval workers: 3-4 (org rate limit 500K input tokens/min).
 
-**Next: Phase 5 (answers, citations, refusal):** citation verifier on the final answer (every number must be a cited value/result), calibrated refusal + over-refusal measurement, own "not disclosed" question set, FastAPI streaming endpoint, CLI with show-work.
+**Phase 5 done (2026-11-07), branch `phase-5-answers`:**
+- `verifier.py` citation checker (value-backed / page-backed / unsupported) + one repair round.
+- `evals/own_questions.jsonl`: 24 unanswerable questions (`--split own`).
+- System `filinglens_v3`: scope gate + v2 + verified answers. Dev 62% / 19% refused / 19% wrong, 0 gate over-refusals, citation precision 100%, own set 24/24.
+- `uvicorn filinglens.api:app` (POST /ask SSE, GET /health); `python -m filinglens.cli "..."`.
+- README written (repo is public).
+
+**Next: Phase 6 (failure loop, ship v1):** bucket every dev failure, fix the biggest bucket (likely retrieval: 19% refusals are mostly misses), rerun; run the test split ONCE; Next.js UI; deploy (Render later per user); README with final 3-way table.
 
 ---
 

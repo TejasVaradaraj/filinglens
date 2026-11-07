@@ -73,6 +73,26 @@ def plan(question: str, use_cache: bool = True) -> Plan:
     return p
 
 
+def correct_company(question: str, company: str) -> None:
+    """Fix the cached plan's company (used when a later check finds the planner missed it)."""
+    key = _key(question)
+    with _cache_lock:
+        cache = json.loads(PLAN_CACHE.read_text()) if PLAN_CACHE.exists() else {}
+        if key in cache:
+            cache[key]["company"] = company
+            PLAN_CACHE.write_text(json.dumps(cache))
+
+
+def match_company(name: str) -> str | None:
+    """Database company for a name as written ("Best Buy Co." -> "Best Buy"), if any."""
+    norm = lambda x: re.sub(r"[^a-z0-9]", "", x.lower())
+    n = norm(name)
+    for c in companies():
+        if n and (norm(c) == n or norm(c) in n or n in norm(c)):
+            return c
+    return None
+
+
 def _plan_uncached(question: str) -> Plan:
     prompt = f"Companies in the database:\n{json.dumps(list(companies()))}\n\nQuestion: {question}"
     cost = 0.0

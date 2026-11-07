@@ -147,6 +147,44 @@ against the pages, wrong page citations repaired, unverifiable values dropped), 
 - Hallucination did not drop (17% -> 19-20%, within noise). The wrong answers are mostly
   definitions and judgment calls, which Phase 5 (verifier, refusal calibration) targets.
 
+## Phase 5: citations, refusal, API (2026-11-07)
+
+**Citation checker** (`verifier.py`): every number in the final answer must be value-backed
+(a verified value or calculator result, matching at the precision written, the cited id if
+cited) or page-backed (verbatim on a provided page). Unsupported numbers trigger one repair
+round. Measured on v2's dev answers before integration: 98.8% (4 unsupported numbers in 4
+answers); the first version of the checker reported 77% because of its own false positives
+("3M" read as 3 million, dates, tickers, "about 2 points" for 1.7) - fixed and tested.
+
+**Own unanswerable set** (`evals/own_questions.jsonl`, 24 q, gold NOT_DISCLOSED): 8 companies
+not in the database, 8 periods outside every filing, 8 facts a 10-K doesn't report. Scored
+correct only if the headline refuses. (A scorer regex bug - "does not disclose" but not "do not
+disclose" - first showed 22/24; both misses were real refusals.)
+
+**filinglens_v3** = scope gate + v2 + verified answers. Gate: refuse if a company is named but
+not in the database, or if every year asked is outside that company's coverage (10-K = its
+year + 2 prior, 10-Q = its year + prior, +1 year for forward-looking statements). If the
+planner finds no company, a second check asks whether the question names one at all; if it
+names one we do have, the cached plan is corrected instead of refusing.
+
+| System | FinanceBench dev accuracy | Refused | Hallucination | Unanswerable refused | Citation precision | Cost/q | p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| filinglens_v2 | 62% | 18% | 20% | 24/24 | 98.8% (unchecked) | $0.0026 | 11.2 s |
+| filinglens_v3, first gate | 61% | 22% | 17% | 24/24 | 100% (322/322) | $0.0025 | 10.7 s |
+| **filinglens_v3** | **62%** | 19% | 19% | **24/24** | **100% (330/330)** | $0.0026 | 10.7 s |
+
+- **Over-refusal:** the first gate wrongly refused 4 answerable dev questions (3 FinanceBench
+  questions name no company; 1 asks about FY2023 forecasts in a FY2022 10-K; 1 was a planner
+  miss on Best Buy). After the fixes: 0 gate refusals on dev, still 24/24 on the unanswerable set.
+- **Citation precision 100%:** 291 numbers value-backed, 39 page-backed, 3 answers repaired.
+  Every number a user sees traces to a value, a calculation, or a page.
+- **Hallucination (wrong and not refused) is 19%.** These are mostly definition/judgment
+  disagreements with gold and reading errors, not invented numbers: the numbers themselves
+  are all verified. Refusals (19%) are mostly retrieval misses.
+- **API:** `uvicorn filinglens.api:app` - `POST /ask` streams SSE events (plan, retrieval,
+  values, calculation, answer, citations, done); `GET /health`. Scope-gated refusals return in
+  ~1 s for $0.0001. **CLI:** `python -m filinglens.cli "question"` prints the show-work live.
+
 ### Notes
 - **Judge audit #1 (oracle run, 20 judged answers, graded by Claude Opus 5.5 as second grader):**
   17/20 agreement. All 3 disagreements were the judge being too strict (2 direction questions)
