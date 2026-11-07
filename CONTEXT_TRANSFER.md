@@ -8,9 +8,9 @@
 
 - I'm **Tejasvi**, a CS student. I know Python, React and some FastAPI. I'm starting **AI engineering from zero**.
 - I'm building FilingLens to **learn AI engineering on the fly** and to have a **strong technical project for internship applications**.
-- **Use simple language.** Explain every new term the first time it comes up. Be detailed about *what* is happening and *why*.
-- **Don't write or edit code files for me.** Show code in chat, explain it line by line or block by block, and tell me which file it goes in and what command to run. I decide whether to paste it myself. On some computers I'm only reading and exploring, not coding, so explaining matters more than producing code.
-- Teach the same way throughout: one step at a time, a short "why" for each, a quick check-your-understanding question at the end of each step, and wait for me before moving on.
+- **Use simple language.** Explain every new term the first time it comes up, briefly.
+- **Change of rules (2026-11-07): Claude builds the whole project.** Because of time constraints, Claude writes and edits all code, runs the commands, tests and evals, and commits. Don't stop for quizzes or wait between steps.
+- **I only do what Claude can't:** create and provide API keys, create accounts, set spending limits, give or refuse access, and supply personal details (for example the SEC User-Agent email). Ask me only when blocked on one of those or on a real decision.
 - Follow the phase order below. Measure first, then build, then measure again.
 - Never ask me to paste my API key into chat.
 
@@ -67,32 +67,26 @@ QUERY (per question)
 
 ---
 
-## 4. Current state of the repo (as of 2026-10-21)
+## 4. Current state of the repo (as of 2026-11-07)
 
-Folder: `~/Desktop/filinglens`. It's a git repo with **no commits yet**, so the repo **isn't on GitHub**. On another computer, either push it to GitHub first or recreate the files below.
+Folder: `~/Desktop/filinglens`, git repo, not on GitHub yet.
 
-**Files that exist:**
-- `pyproject.toml`: name `filinglens`, Python >=3.12, deps `python-dotenv`, dev group `pytest`, hatchling build, package at `src/filinglens`. It says `readme = "README.md"`, but README.md doesn't exist yet, so install fails until it's created.
-- `.env.example`: still says `OPENAI_API_KEY=sk-...`. Needs changing to `ANTHROPIC_API_KEY=sk-ant-...`.
-- `.gitignore`: ignores `__pycache__/`, `*.pyc`, `.venv/`, `.env`, `data/`, `.DS_Store`.
-- `src/filinglens/__init__.py`: just a docstring.
-- `src/filinglens/config.py`: loads `.env`, defines `PROJECT_ROOT`, `DATA_DIR`, `OPENAI_API_KEY`, `require_openai_key()`. Needs updating (see below).
-- `tests/test_smoke.py`: 2 tests that check `PROJECT_ROOT` and `DATA_DIR`.
-- `data/` and `scripts/`: empty.
-- `ROADMAP.md`: the full beginner-friendly roadmap. Section 5 below is a condensed copy.
+**Environment gotchas (important):**
+- The Desktop is iCloud-synced. iCloud offloads files inside `.venv` and Python hangs reading them. Always run with the venv outside iCloud: `export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/filinglens"` (add it to `~/.zshrc`).
+- Large data lives outside iCloud too: `FILINGLENS_DATA_DIR=~/filinglens-data` (set in `.env`). FinanceBench is at `~/filinglens-data/raw/financebench` (sparse clone: PDFs + question files, commit cc39aeb).
+- **The API key in `.env` was rejected (401 invalid x-api-key) on 2026-11-07.** A new key is needed before any eval can run.
 
-**Where I left off: Phase 0, Step 1 (setup) has been explained but I haven't confirmed it's done.** The Step 1 commands:
-1. `uv python pin 3.12`
-2. `echo "# FilingLens" > README.md`
-3. `uv sync`
-4. `uv add anthropic`
-5. Get a key at platform.claude.com, add $5–10 credit, set a spending limit.
-6. Replace `.env.example` with `ANTHROPIC_API_KEY=sk-ant-...`, then `cp .env.example .env` and put the real key in `.env`.
-7. Replace `config.py` with a version that has `ANTHROPIC_API_KEY`, `MODEL = "claude-haiku-5-5"`, `DEFAULT_EFFORT = "low"`, and `require_anthropic_key()` (fails if the key is missing or still starts with `sk-ant-...`).
-8. `uv run pytest` should print `2 passed`.
-9. `git status` (check `.env` isn't listed), then `git add .` and the first commit.
+**Done:**
+- Phase 0 setup: Python 3.12 pinned, `uv`, deps (anthropic, pydantic, pymupdf, fastembed, numpy), `config.py` with model/effort/prices, `scripts/first_call.py`.
+- Phase 1 harness (code done, not yet run against the API):
+  - `evals/splits.json`: dev 100 / test 50, split by filing (`scripts/make_split.py`).
+  - `src/filinglens/llm.py`: the one LLM wrapper (tokens, cost incl. >100K tier, latency).
+  - `src/filinglens/eval/scoring.py`: numeric scoring within 1%, LLM judge for text, verdicts correct/incorrect/refused.
+  - `src/filinglens/eval/runner.py`: `python -m filinglens.eval.runner --system <name> --split dev [--limit N]`, results to `~/filinglens-data/runs/`, resumable.
+  - Systems: `oracle` (gold pages, upper bound), `long_context` (Baseline B), `naive_rag` (Baseline A: 300-word chunks, bge-small local embeddings, shared index, no filters, top 5).
+  - 28 passing tests.
 
-**Next: Phase 0, Step 2.** My first LLM call: a small script that sends Haiku a question and prints the answer, input/output token counts (`response.usage`), and the cost in dollars.
+**Next:** with a working key, run oracle + naive_rag on dev, long_context on 20 dev questions; hand-check the judge on ~20 answers; fill in CHANGELOG.md. Then Phase 2.
 
 ---
 

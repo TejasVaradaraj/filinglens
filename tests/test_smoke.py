@@ -7,5 +7,6 @@ def test_project_root_is_correct():
     assert (config.PROJECT_ROOT / "pyproject.toml").exists()
 
 
-def test_data_dir_is_inside_project():
-    assert config.DATA_DIR.parent == config.PROJECT_ROOT
+def test_data_paths_hang_off_data_dir():
+    assert config.FINANCEBENCH_DIR.is_relative_to(config.DATA_DIR)
+    assert config.RUNS_DIR.is_relative_to(config.DATA_DIR)

@@ -1,0 +1,21 @@
+"""Oracle: give the model exactly the gold evidence pages.
+
+Not a real system (it peeks at the answer key's page numbers). It is the
+ceiling for "perfect retrieval": if the oracle gets a question wrong, the
+problem is reading or math, not finding the page.
+"""
+from filinglens import llm
+from filinglens.dataset import Question
+from filinglens.pdf_text import page_texts
+from filinglens.systems.base import ANSWER_SYSTEM_PROMPT, SystemAnswer
+
+
+def answer(question: Question) -> SystemAnswer:
+    pages = sorted({(e.doc_name, e.evidence_page_num) for e in question.evidence})
+    excerpts = "\n\n".join(
+        f"[{doc} | page {num}]\n{page_texts(doc)[num]}" for doc, num in pages
+    )
+    prompt = f"Filing excerpts:\n\n{excerpts}\n\nQuestion: {question.question}"
+    result = llm.complete(prompt, system=ANSWER_SYSTEM_PROMPT)
+    return SystemAnswer(result.text, result.cost_usd, result.input_tokens, result.output_tokens,
+                        retrieved_pages=pages)

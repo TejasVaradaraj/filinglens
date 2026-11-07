@@ -14,13 +14,31 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # Read key=value pairs from .env into environment variables (if .env exists).
 load_dotenv(PROJECT_ROOT / ".env")
 
-DATA_DIR = PROJECT_ROOT / "data"
+# Large data (PDFs, run outputs) can live outside the repo. The repo sits on an
+# iCloud-synced Desktop, and iCloud can offload files to the cloud, which makes
+# reads hang. Set FILINGLENS_DATA_DIR in .env to keep data somewhere safe.
+DATA_DIR = Path(os.getenv("FILINGLENS_DATA_DIR", PROJECT_ROOT / "data")).expanduser()
+FINANCEBENCH_DIR = DATA_DIR / "raw" / "financebench"
+RUNS_DIR = DATA_DIR / "runs"
+CACHE_DIR = DATA_DIR / "cache"
+
+# Small files that must be versioned (dev/test split, my own questions) live in the repo.
+EVALS_DIR = PROJECT_ROOT / "evals"
+
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 # The one model the whole project uses (baselines included, so comparisons are fair).
 MODEL = "claude-haiku-5-5"
 # How much the model "thinks" before answering. Low = cheapest and fastest.
 DEFAULT_EFFORT = "low"
+
+# Claude Haiku 5.5 prices in dollars per 1M tokens. Prompts over 100K input tokens
+# are billed at the higher "long context" rate for the whole request.
+LONG_CONTEXT_THRESHOLD = 100_000
+PRICES = {
+    "standard": {"input": 0.10, "output": 0.50},
+    "long": {"input": 0.50, "output": 2.50},
+}
 
 
 def require_anthropic_key() -> str:
