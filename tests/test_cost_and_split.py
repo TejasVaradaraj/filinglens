@@ -32,3 +32,10 @@ def test_no_filing_on_both_sides():
     dev_docs = {q.doc_name for q in load_split("dev")}
     test_docs = {q.doc_name for q in load_split("test")}
     assert not dev_docs & test_docs
+
+
+def test_cache_aware_cost():
+    # 1,000 uncached + 9,000 cache-read input tokens, 500 output, standard tier
+    c = llm.cost_usd(1_000, 500, cache_read=9_000)
+    assert c == pytest.approx((1_000 + 900) / 1e6 * 0.10 + 500 / 1e6 * 0.50)
+    assert llm.cost_usd(0, 0, cache_write=50_000) == pytest.approx(50_000 * 1.25 / 1e6 * 0.10)

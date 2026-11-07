@@ -27,12 +27,26 @@ class LLMResult:
     raw: object = field(default=None, repr=False)
 
 
-def cost_usd(input_tokens: int, output_tokens: int, batch: bool = False) -> float:
-    """Dollar cost of one call. Over 100K input tokens, the long-context rate applies."""
-    tier = "long" if input_tokens > config.LONG_CONTEXT_THRESHOLD else "standard"
+CACHE_WRITE_MULT = 1.25   # writing a prompt-cache entry (5-minute TTL)
+CACHE_READ_MULT = 0.10    # reading from the cache
+
+
+def cost_usd(input_tokens: int, output_tokens: int, batch: bool = False,
+             cache_write: int = 0, cache_read: int = 0) -> float:
+    """Dollar cost of one call. Over 100K input tokens, the long-context rate applies.
+    input_tokens are the uncached ones; cached tokens are reported separately by the API."""
+    total_in = input_tokens + cache_write + cache_read
+    tier = "long" if total_in > config.LONG_CONTEXT_THRESHOLD else "standard"
     price = config.PRICES[tier]
-    cost = input_tokens / 1e6 * price["input"] + output_tokens / 1e6 * price["output"]
+    cost = (input_tokens + cache_write * CACHE_WRITE_MULT + cache_read * CACHE_READ_MULT) / 1e6 * price["input"] \
+        + output_tokens / 1e6 * price["output"]
     return cost * (0.5 if batch else 1.0)
+
+
+def _usage_cost(usage) -> float:
+    return cost_usd(usage.input_tokens, usage.output_tokens,
+                    cache_write=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+                    cache_read=getattr(usage, "cache_read_input_tokens", 0) or 0)
 
 
 # --- Spending guard ---------------------------------------------------------------
@@ -108,14 +122,13 @@ def complete(
     # Haiku 5.5 may return thinking blocks before the answer; keep only the text.
     text = "".join(b.text for b in response.content if b.type == "text").strip()
     usage = response.usage
-    _ledger_update(cost_usd(usage.input_tokens, usage.output_tokens))
-    tracing.record_llm(usage.input_tokens, usage.output_tokens,
-                       cost_usd(usage.input_tokens, usage.output_tokens), latency)
+    _ledger_update(_usage_cost(usage))
+    tracing.record_llm(usage.input_tokens, usage.output_tokens, _usage_cost(usage), latency)
     return LLMResult(
         text=text,
         input_tokens=usage.input_tokens,
         output_tokens=usage.output_tokens,
-        cost_usd=cost_usd(usage.input_tokens, usage.output_tokens),
+        cost_usd=_usage_cost(usage),
         latency_s=latency,
         stop_reason=response.stop_reason,
         raw=response,
@@ -123,16 +136,20 @@ def complete(
 
 
 def chat(messages: list, system: str, tools: list, effort: str = config.DEFAULT_EFFORT,
-         max_tokens: int = 4000) -> tuple[object, float]:
-    """One turn of a tool-use conversation. Returns (raw response, cost in USD)."""
+         max_tokens: int = 4000, cache: bool = True) -> tuple[object, float]:
+    """One turn of a tool-use conversation. Returns (raw response, cost in USD).
+
+    cache=True turns on automatic prompt caching: each turn re-sends the whole
+    conversation (pages included), so later turns read that prefix from cache at 10% price."""
+    extra = {"cache_control": {"type": "ephemeral"}} if cache else {}
     _check_budget()
     start = time.perf_counter()
     response = client().messages.create(
         model=config.MODEL, max_tokens=max_tokens, output_config={"effort": effort},
-        system=system, tools=tools, messages=messages,
+        system=system, tools=tools, messages=messages, **extra,
     )
     usage = response.usage
-    cost = cost_usd(usage.input_tokens, usage.output_tokens)
+    cost = _usage_cost(usage)
     _ledger_update(cost)
     tracing.record_llm(usage.input_tokens, usage.output_tokens, cost, time.perf_counter() - start)
     return response, cost
