@@ -87,3 +87,15 @@ def test_two_line_header_merged():
     [t] = page_tables(TWO_LINE_HEADER)
     assert t.header[1:] == ["Year Ended Dec 31, 2022", "Year Ended Dec 31, 2021"]
     assert t.values == [[100, 90]]
+
+
+SPLIT_SCALE = """|Years Ended|2021|2020|
+|---|---|---|
+|(dol|lars in million|s, except per share)|
+|Revenue|133,613|128,292|
+"""
+
+
+def test_scale_split_across_cells_is_detected():
+    [t] = page_tables(SPLIT_SCALE)
+    assert t.scale == 1_000_000

@@ -86,7 +86,18 @@ Folder: `~/Desktop/filinglens`, git repo, not on GitHub yet.
   - Systems: `oracle` (gold pages, upper bound), `long_context` (Baseline B), `naive_rag` (Baseline A: 300-word chunks, bge-small local embeddings, shared index, no filters, top 5).
   - 28 passing tests.
 
-**Next:** with a working key, run oracle + naive_rag on dev, long_context on 20 dev questions; hand-check the judge on ~20 answers; fill in CHANGELOG.md. Then Phase 2.
+**Phase 1 done (2026-11-07):** oracle 88%, long context 90% (20 q, $0.075/q), naive RAG 28% on dev. Judge: 3-vote majority, 37/40 agreement in audits. See CHANGELOG.md.
+
+**Phase 2 done (2026-11-07), branch `phase-2-parsing`:**
+- Parser: pymupdf4llm (bake-off winner). Docling installed in the optional `bakeoff` group only.
+- Postgres 17 + pgvector via `docker compose up -d` on **port 5434** (5433 is used by another local project). Schema: `python -m filinglens.db`.
+- `python -m filinglens.ingest [--workers 4]`: all 84 filings ingested (12,013 pages, 7,377 tables, 1,381 sections). Idempotent by file hash + PIPELINE_VERSION in ingest.py (bump it when parsing logic changes).
+- `python -m filinglens.edgar TICKER --forms 10-K --limit N`: SEC downloader (needs SEC_USER_AGENT in .env).
+- 73 tests.
+
+**Not done / blocked:** GitHub push (auto-mode classifier blocked `gh repo create`; user to approve or create the repo). Own question file moved to Phase 5.
+
+**Next: Phase 3 (retrieval):** section/table-aware chunks into `chunks`, local embeddings in pgvector, BM25 via Postgres full-text, metadata filters, hybrid RRF, recall@k in the eval, ablation table. Target: close the gap between naive RAG (28%) and oracle (88%).
 
 ---
 

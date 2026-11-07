@@ -5,8 +5,8 @@ Usage:
     python -m filinglens.ingest 3M_2018_10K ...  # specific filings
     python -m filinglens.ingest --workers 4      # parse in parallel (uses more CPU)
 
-Idempotent: a filing whose source file hash and parser are unchanged is skipped.
-If either changed, the old rows are replaced inside one transaction, so a crash
+Idempotent: a filing whose source file hash and pipeline version are unchanged is
+skipped. If either changed, the old rows are replaced inside one transaction, so a crash
 never leaves a half-ingested filing behind.
 """
 from __future__ import annotations
@@ -27,6 +27,9 @@ from filinglens.parsing.sections import find_sections, section_for_page
 from filinglens.parsing.tables import page_tables
 
 PARSER = "pymupdf4llm"  # chosen by the Phase 2 bake-off (see CHANGELOG.md)
+# Bump when section/table logic changes: filings stored with an older version get re-ingested.
+PIPELINE_VERSION = 3
+PIPELINE = f"{PARSER}/v{PIPELINE_VERSION}"
 
 
 def sha256(path: Path) -> str:
@@ -70,7 +73,7 @@ def store(parsed: dict, digest: str) -> dict:
                                     source_url, sha256, n_pages, parser)
                VALUES (%s, %s, %s, %s, %s, 'financebench', %s, %s, %s, %s) RETURNING id""",
             (doc.doc_name, doc.company, form_type(doc), doc.doc_period, period(doc),
-             doc.doc_link, digest, parsed["n_pages"], PARSER),
+             doc.doc_link, digest, parsed["n_pages"], PIPELINE),
         ).fetchone()[0]
         with conn.cursor() as cur:
             cur.executemany("INSERT INTO pages (filing_id, page_num, text_md) VALUES (%s, %s, %s)",
@@ -98,7 +101,7 @@ def store(parsed: dict, digest: str) -> dict:
 def needs_ingest(doc_name: str, digest: str) -> bool:
     with db.connect() as conn:
         row = conn.execute("SELECT sha256, parser FROM filings WHERE doc_name = %s", (doc_name,)).fetchone()
-    return row != (digest, PARSER)
+    return row != (digest, PIPELINE)
 
 
 def ingest(doc_names: list[str], workers: int = 1, force: bool = False) -> dict:

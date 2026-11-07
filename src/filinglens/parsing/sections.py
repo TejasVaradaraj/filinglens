@@ -19,8 +19,6 @@ _PART = re.compile(_PREFIX + r"part\s+(iv|i{1,3})\b(?!\s*,?\s*item)", re.IGNOREC
 _TOC_LINE = re.compile(r"(?:\|\s*\d{1,3}\s*\|?|\s\d{1,3})\s*$")
 TOC_MIN_LINES = 3
 
-_ORDER = ["1", "1a", "1b", "1c", "2", "3", "4", "5", "6", "7", "7a", "8", "9", "9a", "9b", "9c",
-          "10", "11", "12", "13", "14", "15", "16"]
 
 
 @dataclass
@@ -41,8 +39,10 @@ def _clean_title(raw: str) -> str:
     return t[:120]
 
 
-def _rank(item: str) -> int:
-    return _ORDER.index(item) if item in _ORDER else len(_ORDER)
+def _rank(item: str) -> tuple[int, str]:
+    """'7a' -> (7, 'a'). Any item (4A, 9C, 16) orders correctly without a fixed list."""
+    m = re.match(r"(\d+)([a-c]?)", item)
+    return (int(m.group(1)), m.group(2))
 
 
 def find_sections(pages: list[str], use_parts: bool = False) -> list[Section]:
@@ -64,13 +64,17 @@ def find_sections(pages: list[str], use_parts: bool = False) -> list[Section]:
         events += found
 
     sections: list[Section] = []
-    part, last_rank, seen_part = "", -1, False
+    part, last_rank, seen_part = "", (-1, ""), False
     for page_num, kind, value, title in events:
         if kind == "part":
             if value != part:
-                part, last_rank, seen_part = value, -1, True
+                part, last_rank, seen_part = value, (-1, ""), True
             continue
         r = _rank(value)
+        if (use_parts and value == "1" and part in ("", "I") and last_rank >= (2, "")
+                and title and title[0].isalpha() and len(title) <= 80):
+            # 10-Q numbering restarted at Item 1 with no "PART II" heading found: that is Part II.
+            part, last_rank, seen_part = "II", (-1, ""), True
         if r <= last_rank or not title or not title[0].isalpha():
             continue  # cross-reference, repeated running header, or a bare "Item 7" mention
         last_rank = r

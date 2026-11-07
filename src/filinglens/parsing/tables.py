@@ -89,7 +89,10 @@ def find_tables(page_md: str) -> list[ParsedTable]:
                 header = [f"{a} {b}".strip() for a, b in zip(header, body[0])]
                 body = body[1:]
             md = "\n".join(lines[start:i])
-            context = " ".join([title, " ".join(header)])
+            # The scale line is sometimes split across cells ("(In|millions, except per share amou|nts)")
+            # or sits in the first rows, so look there too, with cells both spaced and glued.
+            top = [header] + body[:3]
+            context = " ".join([title] + [" ".join(r) for r in top] + ["".join(r) for r in top])
             t = ParsedTable(index=len(tables), title=title, header=header, rows=body, markdown=md,
                             scale=detect_scale(context))
             t.values = [[parse_number(c) for c in r[1:]] for r in body]

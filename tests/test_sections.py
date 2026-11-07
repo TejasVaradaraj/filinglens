@@ -37,3 +37,19 @@ def test_10q_part_ii_restarts_numbering():
 
 def test_bare_item_mentions_are_not_headings():
     assert find_sections(["Item 7", "See Item 8 for details"]) == []
+
+
+def test_item_4a_does_not_block_later_items():
+    pages = ["Item 4. Mine Safety Disclosures", "Item 4A. Executive Officers of the Registrant",
+             "Item 5. Market for Registrant's Common Equity", "Item 8. Financial Statements"]
+    assert [s.item for s in find_sections(pages)] == ["ITEM 4", "ITEM 4A", "ITEM 5", "ITEM 8"]
+
+
+def test_10q_without_part_heading_infers_part_ii():
+    pages = ["## **Item 1. Financial Statements.**", "## **Item 2. Management's Discussion and Analysis.**",
+             "Item 1, Business Segments, provides an overview (cross-reference, not a heading)",
+             "## **Item 4. Controls and Procedures.**", "## **Item 1.** **<u>Legal Proceedings.</u>**",
+             "## **Item 1A. Risk Factors.**", "## **Item 6. Exhibits.**"]
+    secs = find_sections(pages, use_parts=True)
+    assert [s.item for s in secs] == ["ITEM 1", "ITEM 2", "ITEM 4", "PART II ITEM 1",
+                                      "PART II ITEM 1A", "PART II ITEM 6"]

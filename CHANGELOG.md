@@ -36,6 +36,24 @@ Same oracle system (gold evidence pages), dev set, only the page-text extractor 
 their columns as markdown (plain text puts every cell on its own line), which the table
 normalizer needs, and cut hallucinations by a third vs plain text.
 
+## Phase 2: ingestion (2026-11-07)
+
+- All 84 FinanceBench filings ingested into Postgres: **12,013 pages, 7,377 tables, 1,381 sections**
+  (first parse 22 min on 4 cores; re-ingest from cached page text ~7 s; unchanged re-run skips all 84).
+- Sections: every 10-K (avg 20.5 items) and 10-Q (avg 8.9) has them. Known gap: JPMorgan's 10-Q
+  labels MD&A without Item numbers, so those pages have no section. 8-Ks and earnings releases
+  have no Items by design.
+- Tables: 97% of numeric-looking cells parse on real evidence pages; 72.7% of tables have a
+  detected scale (the rest are mostly per-unit, share-count or percentage tables, or state the
+  scale in a paragraph the page-level fallback missed).
+- **End-to-end parse check:** for all 14 direct-extraction numeric questions, the gold answer
+  equals a parsed table value x detected scale on the evidence page (within rounding): **14/14**.
+  Without applying the scale only 8/14 matched (e.g. Netflix reports 5,466,312 in thousands,
+  gold is $5,466 million), which is exactly the unit-normalization job of Phase 4's calculator.
+- Bugs found by running on real filings, all now covered by tests: scale text split across
+  cells; "Item 4A" blocking later items; 10-Q Part II with no PART heading; footnote markers
+  and `<sup>$</sup>` inside numeric cells.
+
 ### Notes
 - **Judge audit #1 (oracle run, 20 judged answers, graded by Claude Opus 5.5 as second grader):**
   17/20 agreement. All 3 disagreements were the judge being too strict (2 direction questions)
