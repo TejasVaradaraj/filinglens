@@ -116,7 +116,7 @@ const handlers = {
     for (const v of vals) {
       known[v.id] = v;
       $("values").insertAdjacentHTML("beforeend", `<tr><td class="num">${v.id}</td><td>${esc(v.label)}<div class="quote">“${esc(v.quote.slice(0, 140))}”</div></td>
-        <td>${esc(v.period)}</td><td class="num">${esc(fmtValue(v))}</td><td class="num">${esc(v.doc)} p${v.page}</td></tr>`);
+        <td>${esc(v.period)}</td><td class="num">${esc(fmtValue(v))}${v.xbrl ? `<div class="quote" title="The company tagged exactly this number as us-gaap:${esc(v.xbrl)} in its XBRL data">✓ SEC-tagged</div>` : ""}</td><td class="num">${esc(v.doc)} p${v.page}</td></tr>`);
     }
     $("valuesCard").hidden = vals.length === 0;
   },

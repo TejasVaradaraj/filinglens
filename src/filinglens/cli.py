@@ -21,8 +21,9 @@ def show(event: str, data) -> None:
         print(f"{DIM}pages    " + ", ".join(f"{p['doc']} p{p['page']}" for p in data["pages"]) + RESET)
     elif event == "values":
         for v in data:
+            sec = f"  SEC-tagged {v['xbrl']}" if v.get("xbrl") else ""
             print(f"{DIM}value    [{v['id']}] {v['label']} {v['period']} = {v['value']:g} "
-                  f"({v['unit']}, {v['scale']}) <- {v['doc']} p{v['page']}{RESET}")
+                  f"({v['unit']}, {v['scale']}) <- {v['doc']} p{v['page']}{sec}{RESET}")
     elif event == "calculation":
         print(f"{DIM}calc     [{data['id']}] {data['formula']} = {data['text']}{RESET}")
     elif event == "repair":

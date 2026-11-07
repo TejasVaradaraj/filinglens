@@ -112,6 +112,28 @@ def _noop(event: str, data) -> None:
     pass
 
 
+def _xbrl_evidence(values: list[Value], company: str | None) -> dict[str, str]:
+    """value id -> us-gaap concept, for USD values the company itself tagged with exactly that
+    number and a concept that matches the label (strong matches only; see xbrl.confirm)."""
+    import re as _re
+
+    from filinglens.xbrl import confirm
+    out = {}
+    if not company:
+        return out
+    for v in values:
+        if v.unit != "USD":
+            continue
+        m = _re.search(r"(19|20)\d\d", v.period)
+        try:
+            hit = confirm(company, v.base, int(m.group(0)) if m else None, v.label)
+        except Exception:  # XBRL table not loaded: evidence is optional
+            return {}
+        if hit and hit["strong"]:
+            out[v.id] = hit["concept"]
+    return out
+
+
 def run_pipeline(question: Question, verify_answer: bool = False, emit=None, rerank: bool = False) -> SystemAnswer:
     """emit(event, data) is called at each stage (plan, retrieval, values, calculation,
     answer, citations) so the API and CLI can stream progress."""
@@ -125,8 +147,11 @@ def run_pipeline(question: Question, verify_answer: bool = False, emit=None, rer
     with tracing.span("extract"):
         ex = extract(question.question, r.excerpts, r.texts)
         tracing.annotate(values=len(ex.values), dropped=len(ex.dropped))
+    with tracing.span("xbrl_check"):
+        xbrl = _xbrl_evidence(ex.values, r.plan.company)
     emit("values", [{"id": v.id, "label": v.label, "value": v.value, "unit": v.unit, "scale": v.scale,
-                     "period": v.period, "doc": v.doc, "page": v.page, "quote": ex.quotes[v.id]} for v in ex.values])
+                     "period": v.period, "doc": v.doc, "page": v.page, "quote": ex.quotes[v.id],
+                     "xbrl": xbrl.get(v.id)} for v in ex.values])
     cost = r.plan.cost_usd + r.rerank_cost + ex.cost_usd
     known: dict[str, Value] = {v.id: v for v in ex.values}
     calcs: list[dict] = []
@@ -161,8 +186,8 @@ def run_pipeline(question: Question, verify_answer: bool = False, emit=None, rer
         emit("citations", {"precision": report.precision,
                            "numbers": [{"text": x.text, "ok": x.ok, "source": x.reason} for x in report.checks]})
     notes = {
-        "values": [{**v.__dict__, "quote": ex.quotes[v.id], "repaired_from": ex.repaired.get(v.id)}
-                   for v in ex.values],
+        "values": [{**v.__dict__, "quote": ex.quotes[v.id], "repaired_from": ex.repaired.get(v.id),
+                    "xbrl": xbrl.get(v.id)} for v in ex.values],
         "dropped_values": ex.dropped, "calculations": calcs, "missing": ex.missing,
         "company": r.plan.company, "query": r.query,
     }
