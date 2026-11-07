@@ -99,7 +99,7 @@ function renderAnswer(text) {
   html = html.replace(/\[((?:[vr]\d+)(?:\s*,\s*[vr]\d+)*)\]/g, (_, ids) => ids.split(/\s*,\s*/).map(id => {
     const k = known[id]; if (!k) return `<span class="cite">${id}</span>`;
     const tip = k.quote !== undefined
-      ? `<b>${esc(k.label)}</b> (${esc(k.period)})<br>${esc(fmtValue(k))}<br><code>${esc(k.doc)} · page ${k.page}</code><br><i>“${esc(k.quote.slice(0, 220))}”</i>`
+      ? `<b>${esc(k.label)}</b> (${esc(k.period)})<br>${esc(fmtValue(k))}<br><a href="page/${encodeURIComponent(k.doc)}/${k.page}?quote=${encodeURIComponent(k.quote.slice(0, 300))}" target="_blank"><code>${esc(k.doc)} · page ${k.page}</code></a><br><i>“${esc(k.quote.slice(0, 220))}”</i>`
       : `<b>Calculated in Python</b><br>${esc(k.formula)} = ${esc(k.text)}`;
     return `<span class="cite" tabindex="0">${id}<span class="tip">${tip}</span></span>`;
   }).join(""));
@@ -116,7 +116,7 @@ const handlers = {
     for (const v of vals) {
       known[v.id] = v;
       $("values").insertAdjacentHTML("beforeend", `<tr><td class="num">${v.id}</td><td>${esc(v.label)}<div class="quote">“${esc(v.quote.slice(0, 140))}”</div></td>
-        <td>${esc(v.period)}</td><td class="num">${esc(fmtValue(v))}${v.xbrl ? `<div class="quote" title="The company tagged exactly this number as us-gaap:${esc(v.xbrl)} in its XBRL data">✓ SEC-tagged</div>` : ""}</td><td class="num">${esc(v.doc)} p${v.page}</td></tr>`);
+        <td>${esc(v.period)}</td><td class="num">${esc(fmtValue(v))}${v.xbrl ? `<div class="quote" title="The company tagged exactly this number as us-gaap:${esc(v.xbrl)} in its XBRL data">✓ SEC-tagged</div>` : ""}</td><td class="num"><a href="page/${encodeURIComponent(v.doc)}/${v.page}?quote=${encodeURIComponent(v.quote.slice(0, 300))}" target="_blank">${esc(v.doc)} p${v.page}</a></td></tr>`);
     }
     $("valuesCard").hidden = vals.length === 0;
   },
@@ -130,7 +130,17 @@ const handlers = {
     const ok = d.numbers.filter(n => n.ok).length, all = d.numbers.length;
     $("check").innerHTML = `<span class="badge ${ok === all ? "ok" : "bad"}">${ok}/${all} numbers verified</span> against values, calculations or the page`;
   },
-  done: d => { $("check").insertAdjacentHTML("beforeend", ` <span class="meta">· $${d.cost_usd.toFixed(4)} · ${d.latency_s}s · ${esc(d.model)}</span>`); },
+  done: d => {
+    $("check").insertAdjacentHTML("beforeend", ` <span class="meta">· $${d.cost_usd.toFixed(4)} · ${d.latency_s}s · ${esc(d.model)} · <a href="#" id="xlsx">Excel</a></span>`);
+    $("xlsx").onclick = async ev => {
+      ev.preventDefault();
+      const all = Object.values(known);
+      const vals = all.filter(k => k.quote !== undefined), calcs = all.filter(k => k.formula && k.quote === undefined);
+      const r = await fetch("export.xlsx", {method: "POST", headers: {"content-type": "application/json"},
+        body: JSON.stringify({question: $("q").value, answer: $("answer").innerText, values: vals, calculations: calcs})});
+      const a = document.createElement("a"); a.href = URL.createObjectURL(await r.blob()); a.download = "filinglens.xlsx"; a.click();
+    };
+  },
   error: d => { $("answerCard").hidden = false; $("answer").innerHTML = `<span class="err">${esc(d.message)}</span>`; },
 };
 

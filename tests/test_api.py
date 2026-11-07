@@ -57,3 +57,16 @@ def test_v5_renumbers_citations():
     from filinglens.systems.filinglens_v5 import _renumber
     assert _renumber("Revenue was $43,004 million [v1] and up 5% [r1, v2].", {"v1": "v3", "r1": "v5", "v2": "v4"}) == \
         "Revenue was $43,004 million [v3] and up 5% [v5, v4]."
+
+
+def test_excel_export_has_three_sheets():
+    import io
+    from openpyxl import load_workbook
+    r = TestClient(api.app).post("/export.xlsx", json={
+        "question": "3M capex FY2018?", "answer": "$1,577 million [v1]",
+        "values": [{"id": "v1", "label": "Capex", "period": "FY2018", "value": -1577, "unit": "USD",
+                    "scale": "millions", "doc": "3M_2018_10K", "page": 59, "quote": "(1,577)"}],
+        "calculations": [{"id": "r1", "operation": "sum", "formula": "a + b", "text": "$2 billion", "value": 2e9}]})
+    wb = load_workbook(io.BytesIO(r.content))
+    assert wb.sheetnames == ["Answer", "Values", "Calculations"]
+    assert wb["Values"]["H2"].value == 59 and wb["Calculations"]["D2"].value == "$2 billion"
