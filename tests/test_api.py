@@ -27,7 +27,7 @@ def test_ask_streams_stage_events(monkeypatch):
         emit("citations", {"precision": 1.0, "numbers": [{"text": "$1,577 million", "ok": True, "source": "value"}]})
         return SystemAnswer("Capex was $1,577 million [v1].", 0.002)
 
-    monkeypatch.setattr(api.filinglens_v3, "answer", fake_answer)
+    monkeypatch.setattr(api.system, "answer", fake_answer)
     r = TestClient(api.app).post("/ask", json={"question": "What was 3M's FY2018 capex?"})
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/event-stream")
     events = parse_sse(r.text)
@@ -39,10 +39,15 @@ def test_ask_reports_errors_in_stream(monkeypatch):
     def boom(q, emit=None):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(api.filinglens_v3, "answer", boom)
+    monkeypatch.setattr(api.system, "answer", boom)
     events = parse_sse(TestClient(api.app).post("/ask", json={"question": "anything here"}).text)
     assert events == [("error", {"message": "RuntimeError: db down"})]
 
 
 def test_ask_validates_input():
     assert TestClient(api.app).post("/ask", json={"question": "hi"}).status_code == 422
+
+
+def test_ui_is_served():
+    r = TestClient(api.app).get("/")
+    assert r.status_code == 200 and "<title>FilingLens</title>" in r.text

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FilingLens</title>
+<style>
+  :root {
+    --bg: #fafaf9; --panel: #ffffff; --text: #1c1917; --muted: #78716c; --border: #e7e5e4;
+    --accent: #1d4ed8; --accent-soft: #dbeafe; --ok: #15803d; --ok-soft: #dcfce7; --bad: #b91c1c; --bad-soft: #fee2e2;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c0a09; --panel: #1c1917; --text: #f5f5f4; --muted: #a8a29e; --border: #292524;
+      --accent: #93c5fd; --accent-soft: #1e3a5f; --ok: #86efac; --ok-soft: #14532d; --bad: #fca5a5; --bad-soft: #7f1d1d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; } .sub { color: var(--muted); margin: 0 0 24px; }
+  form { display: flex; gap: 8px; }
+  textarea { flex: 1; min-height: 52px; resize: vertical; padding: 12px; border: 1px solid var(--border);
+             border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; }
+  button { padding: 0 18px; border: 0; border-radius: 8px; background: var(--accent); color: var(--bg); font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .samples { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 24px; }
+  .samples button { background: var(--panel); color: var(--muted); border: 1px solid var(--border); font-weight: 400; padding: 4px 10px; font-size: 13px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  .answer { font-size: 16px; } .answer strong { font-weight: 650; }
+  .cite { display: inline-block; font: 12px var(--mono); background: var(--accent-soft); color: var(--accent);
+          border-radius: 4px; padding: 0 4px; margin: 0 1px; cursor: help; position: relative; }
+  .cite:hover .tip, .cite:focus .tip { display: block; }
+  .tip { display: none; position: absolute; z-index: 5; left: 0; top: 1.6em; width: min(420px, 80vw); padding: 10px;
+         background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+         font: 13px/1.45 system-ui, sans-serif; box-shadow: 0 6px 24px rgba(0,0,0,.15); white-space: normal; }
+  .tip code { font: 12px var(--mono); color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; border-top: 0; }
+  td.num { font-family: var(--mono); white-space: nowrap; }
+  .quote { color: var(--muted); font-size: 12px; }
+  .scroll { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); } .badge.bad { background: var(--bad-soft); color: var(--bad); }
+  .meta { color: var(--muted); font-size: 13px; }
+  .steps { list-style: none; padding: 0; margin: 0; font-size: 13px; color: var(--muted); }
+  .steps li::before { content: "✓ "; color: var(--ok); }
+  .err { color: var(--bad); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>FilingLens</h1>
+  <p class="sub">Questions about SEC filings, answered with numbers you can check. Every figure links to the page it came from; all math is done in Python.</p>
+
+  <form id="ask">
+    <textarea id="q" placeholder="e.g. What was 3M's FY2018 capital expenditure in USD millions?" required minlength="5"></textarea>
+    <button id="go" type="submit">Ask</button>
+  </form>
+  <div class="samples" id="samples"></div>
+
+  <section class="card" id="answerCard" hidden><h2>Answer</h2><div class="answer" id="answer"></div>
+    <p class="meta" id="check"></p></section>
+  <section class="card" id="stepsCard" hidden><h2>How it got there</h2><ul class="steps" id="steps"></ul></section>
+  <section class="card" id="valuesCard" hidden><h2>Values copied from the filings</h2>
+    <div class="scroll"><table><thead><tr><th>id</th><th>line item</th><th>period</th><th>value</th><th>source</th></tr></thead>
+    <tbody id="values"></tbody></table></div></section>
+  <section class="card" id="calcCard" hidden><h2>Calculations (Python)</h2>
+    <div class="scroll"><table><thead><tr><th>id</th><th>formula</th><th>result</th></tr></thead><tbody id="calcs"></tbody></table></div></section>
+</main>
+<script>
+const SAMPLES = [
+  "What is the FY2018 capital expenditure amount (in USD millions) for 3M?",
+  "Does Verizon have a reasonably healthy liquidity profile based on its quick ratio for FY 2022?",
+  "Among operations, investing, and financing activities, which brought in the most cash flow for Best Buy in FY2023?",
+  "What was Tesla's total revenue in FY2022?",
+];
+const $ = id => document.getElementById(id);
+const known = {};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+for (const s of SAMPLES) {
+  const b = document.createElement("button"); b.type = "button"; b.textContent = s.length > 60 ? s.slice(0, 57) + "…" : s;
+  b.onclick = () => { $("q").value = s; $("ask").requestSubmit(); }; $("samples").append(b);
+}
+
+function fmtValue(v) {
+  const n = Number(v.value).toLocaleString("en-US", {maximumFractionDigits: 3});
+  const scale = v.scale && v.scale !== "units" ? " " + v.scale : "";
+  return (v.unit === "USD" ? "$" : "") + n + scale + (v.unit === "percent" ? "%" : "") + (v.unit === "shares" ? " shares" : "");
+}
+
+function renderAnswer(text) {
+  let html = esc(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\[((?:[vr]\d+)(?:\s*,\s*[vr]\d+)*)\]/g, (_, ids) => ids.split(/\s*,\s*/).map(id => {
+    const k = known[id]; if (!k) return `<span class="cite">${id}</span>`;
+    const tip = k.quote !== undefined
+      ? `<b>${esc(k.label)}</b> (${esc(k.period)})<br>${esc(fmtValue(k))}<br><code>${esc(k.doc)} · page ${k.page}</code><br><i>“${esc(k.quote.slice(0, 220))}”</i>`
+      : `<b>Calculated in Python</b><br>${esc(k.formula)} = ${esc(k.text)}`;
+    return `<span class="cite" tabindex="0">${id}<span class="tip">${tip}</span></span>`;
+  }).join(""));
+  $("answer").innerHTML = html;
+}
+
+function step(text) { const li = document.createElement("li"); li.textContent = text; $("steps").append(li); $("stepsCard").hidden = false; }
+
+const handlers = {
+  plan: d => step(`Planned: ${d.company} · ${d.fiscal_years.map(y => "FY" + y).join(", ") || "any year"} · searched for “${d.query}”`),
+  retrieval: d => step(`Read ${d.pages.length} pages: ` + d.pages.map(p => `${p.doc} p${p.page}`).join(", ")),
+  values: vals => {
+    step(`Copied ${vals.length} values, each checked against its page`);
+    for (const v of vals) {
+      known[v.id] = v;
+      $("values").insertAdjacentHTML("beforeend", `<tr><td class="num">${v.id}</td><td>${esc(v.label)}<div class="quote">“${esc(v.quote.slice(0, 140))}”</div></td>
+        <td>${esc(v.period)}</td><td class="num">${esc(fmtValue(v))}</td><td class="num">${esc(v.doc)} p${v.page}</td></tr>`);
+    }
+    $("valuesCard").hidden = vals.length === 0;
+  },
+  calculation: c => {
+    known[c.id] = c; $("calcCard").hidden = false;
+    $("calcs").insertAdjacentHTML("beforeend", `<tr><td class="num">${c.id}</td><td>${esc(c.formula)}</td><td class="num">${esc(c.text)}</td></tr>`);
+  },
+  repair: d => step(`Rewrote the answer: ${d.unsupported.length} number(s) were not supported`),
+  answer: d => { $("answerCard").hidden = false; renderAnswer(d.text); if (d.scope_gate) step("Stopped early: outside the filings in the database"); },
+  citations: d => {
+    const ok = d.numbers.filter(n => n.ok).length, all = d.numbers.length;
+    $("check").innerHTML = `<span class="badge ${ok === all ? "ok" : "bad"}">${ok}/${all} numbers verified</span> against values, calculations or the page`;
+  },
+  done: d => { $("check").insertAdjacentHTML("beforeend", ` <span class="meta">· $${d.cost_usd.toFixed(4)} · ${d.latency_s}s · ${esc(d.model)}</span>`); },
+  error: d => { $("answerCard").hidden = false; $("answer").innerHTML = `<span class="err">${esc(d.message)}</span>`; },
+};
+
+$("ask").onsubmit = async e => {
+  e.preventDefault();
+  for (const id of ["answer", "check", "steps", "values", "calcs"]) $(id).innerHTML = "";
+  for (const id of ["answerCard", "stepsCard", "valuesCard", "calcCard"]) $(id).hidden = true;
+  for (const k in known) delete known[k];
+  $("go").disabled = true; step("Working…");
+  try {
+    const res = await fetch("ask", {method: "POST", headers: {"content-type": "application/json"},
+                                    body: JSON.stringify({question: $("q").value})});
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "";
+    $("steps").innerHTML = "";
+    for (;;) {
+      const {value, done} = await reader.read(); if (done) break;
+      buf += dec.decode(value, {stream: true});
+      let i; while ((i = buf.indexOf("\n\n")) >= 0) {
+        const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+        const ev = /event: (.*)/.exec(frame)?.[1], data = /data: (.*)/s.exec(frame)?.[1];
+        if (ev && handlers[ev]) handlers[ev](JSON.parse(data));
+      }
+    }
+  } catch (err) { handlers.error({message: String(err)}); }
+  $("go").disabled = false;
+};
+</script>
+</body>
+</html>

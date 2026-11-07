@@ -15,15 +15,19 @@ import queue
 import threading
 import time
 
+from pathlib import Path
+
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from filinglens import config
 from filinglens.dataset import Question
-from filinglens.systems import filinglens_v3
+from filinglens.systems import filinglens_v4 as system
 
-app = FastAPI(title="FilingLens", version="0.5.0",
+UI = Path(__file__).with_name("ui") / "index.html"
+
+app = FastAPI(title="FilingLens", version="0.6.0",
               description="Verifiable analyst copilot for SEC filings")
 
 
@@ -43,7 +47,7 @@ def stream_answer(question: str):
 
     def work():
         try:
-            result = filinglens_v3.answer(q, emit=lambda e, d: events.put((e, d)))
+            result = system.answer(q, emit=lambda e, d: events.put((e, d)))
             events.put(("done", {"cost_usd": round(result.cost_usd, 6),
                                  "latency_s": round(time.perf_counter() - start, 2),
                                  "model": config.MODEL}))
@@ -54,6 +58,11 @@ def stream_answer(question: str):
     threading.Thread(target=work, daemon=True).start()
     while (item := events.get()) is not None:
         yield _sse(*item)
+
+
+@app.get("/", response_class=HTMLResponse)
+def ui() -> str:
+    return UI.read_text()
 
 
 @app.get("/health")

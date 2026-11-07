@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "filinglens-api",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "UV_PROJECT_ENVIRONMENT=$HOME/.venvs/filinglens uv run uvicorn filinglens.api:app --port 8765"],
+      "port": 8765
+    }
+  ]
+}

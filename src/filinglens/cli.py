@@ -8,7 +8,7 @@ import sys
 import time
 
 from filinglens.dataset import Question
-from filinglens.systems import filinglens_v3
+from filinglens.systems import filinglens_v4 as system
 
 BOLD, DIM, GREEN, RED, RESET = "\033[1m", "\033[2m", "\033[32m", "\033[31m", "\033[0m"
 
@@ -44,7 +44,7 @@ def main() -> None:
         raise SystemExit(__doc__)
     question = " ".join(sys.argv[1:])
     start = time.perf_counter()
-    result = filinglens_v3.answer(Question(id="cli", company="", doc_name="", question_type="cli",
+    result = system.answer(Question(id="cli", company="", doc_name="", question_type="cli",
                                            question=question, answer=""), emit=show)
     print(f"{DIM}${result.cost_usd:.4f} | {time.perf_counter() - start:.1f}s{RESET}")
 
