@@ -118,7 +118,13 @@ Folder: `~/Desktop/filinglens`. Public repo: https://github.com/TejasVaradaraj/f
 - `uvicorn filinglens.api:app` (POST /ask SSE, GET /health); `python -m filinglens.cli "..."`.
 - README written (repo is public).
 
-**Next: Phase 6 (failure loop, ship v1):** bucket every dev failure, fix the biggest bucket (likely retrieval: 19% refusals are mostly misses), rerun; run the test split ONCE; Next.js UI; deploy (Render later per user); README with final 3-way table.
+**Phase 6 (2026-11-07), branch `phase-6-ship`:**
+- LLM reranker (`retrieval/rerank.py`); system `filinglens_v4` = scope gate + rerank + verified answers. Dev 76%.
+- **Test split has been run ONCE** (do not tune on it again): v4 76%, long context 80% (20 q), oracle 74%, naive 28%. Same 20 q: v4 17, long context 16.
+- Web UI at GET / (src/filinglens/ui/index.html), served by the API. Not yet visually checked in a browser.
+- Remaining for v1: deploy (Render, user wants it later; needs hosted Postgres), visual UI check.
+
+**Next after v1:** Phase 7 (multi-filing comparisons, tracing, XBRL cross-check, evals in CI).
 
 ---
 

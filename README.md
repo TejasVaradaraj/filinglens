@@ -21,27 +21,33 @@ citations 5/5 numbers traced to a value, calculation or page
 $0.0041 | 11.5s
 ```
 
-## Results (FinanceBench dev, 100 questions, same model everywhere: Claude Haiku 5.5)
+## Results
 
-| System | Accuracy | Hallucination | Cost / question | p95 latency |
-|---|---:|---:|---:|---:|
-| Naive RAG (fixed chunks, vector search) | 28% | 11% | $0.0005 | 3 s |
-| Long context (whole filing in the prompt, 20 q) | 90% | 10% | $0.075 | 161 s |
-| Oracle (gold evidence pages handed over) | 88% | 12% | $0.0003 | 3 s |
-| **FilingLens v3** | **62%** | 19% | **$0.0026** | **11 s** |
+Same model everywhere (Claude Haiku 5.5). FinanceBench open-source questions, split by filing
+into dev (100 q, used for building) and **test (50 q on 27 filings, run once at the end)**.
 
-Plus, for FilingLens v3: **100% citation precision** (330/330 numbers in answers trace to a
-verified value, a calculation or the page) and **24/24** unanswerable questions correctly refused.
-Full history, ablations and what didn't work: [CHANGELOG.md](CHANGELOG.md).
+| System | Dev | **Test** | Hallucination (test) | Cost / question | p95 latency |
+|---|---:|---:|---:|---:|---:|
+| Naive RAG (fixed chunks, vector search) | 28% | 28% | 12% | $0.0005 | 3 s |
+| Oracle (gold evidence pages handed over) | 88% | 74% | 18% | $0.0003 | 3 s |
+| Long context (whole filing in the prompt, 20 q) | 90% | 80% | 15% | $0.10 | 94 s |
+| **FilingLens v4** | **76%** | **76%** | **12%** | **$0.0036** | **14 s** |
+
+On the 20 test questions all four systems ran: **FilingLens 17/20, long context 16/20**, at
+1/28th of the cost and 1/7th of the p95 latency. Plus: **100% citation precision** (every number
+in an answer traces to a verified value, a calculation or the page; 210/210 on test) and
+**24/24** unanswerable questions correctly refused. Full history, ablations and what didn't work:
+[CHANGELOG.md](CHANGELOG.md).
 
 ## How it works
 
 ```text
 INGESTION   FinanceBench PDFs / SEC EDGAR -> pymupdf4llm (markdown tables) -> sections, tables
             (units, scale, (1,234) negatives) -> structure-aware chunks -> Postgres + pgvector + full-text
-QUERY       question -> planner (company, period, query rewrite) -> scope gate -> keyword search
-            within the right filings -> full pages -> typed value extraction (checked against the page)
-            -> answer writer with a Python `calculate` tool -> citation check (+1 repair round)
+QUERY       question -> planner (company, period, query rewrite) -> scope gate -> keyword + vector
+            search within the right filings -> LLM rerank to 5 full pages -> typed value extraction
+            (checked against the page) -> answer writer with a Python `calculate` tool
+            -> citation check (+1 repair round)
 ```
 
 ## Run it
@@ -53,8 +59,8 @@ docker compose up -d                      # Postgres 17 + pgvector on localhost:
 python -m filinglens.ingest --workers 4   # parse the FinanceBench filings
 python -m filinglens.retrieval.index chunk && python -m filinglens.retrieval.index embed
 python -m filinglens.cli "What was 3M's FY2018 capital expenditure in USD millions?"
-uvicorn filinglens.api:app --port 8000    # POST /ask streams Server-Sent Events
-python -m filinglens.eval.runner --system filinglens_v3 --split dev
+uvicorn filinglens.api:app --port 8000    # web UI on /, POST /ask streams Server-Sent Events
+python -m filinglens.eval.runner --system filinglens_v4 --split dev
 uv run pytest
 ```
 

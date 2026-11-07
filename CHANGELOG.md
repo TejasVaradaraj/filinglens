@@ -185,6 +185,43 @@ names one we do have, the cached plan is corrected instead of refusing.
   values, calculation, answer, citations, done); `GET /health`. Scope-gated refusals return in
   ~1 s for $0.0001. **CLI:** `python -m filinglens.cli "question"` prints the show-work live.
 
+## Phase 6: failure loop + held-out test (2026-11-07)
+
+**Failure buckets on v3 (dev, 38 failures):** 14 right filing / wrong page, 3 wrong filing,
+13 page found but answered wrong, 8 page found but refused. Biggest bucket: retrieval.
+
+**Fix: LLM reranker.** The keyword-20 + vector-20 candidate pool contains the gold page (±1)
+for 98/100 dev questions; with keyword ranking alone only 76 reach the final 5 pages. Haiku
+reads ~26 page previews and picks 5: 85/100 (exact page 82/100), $0.0008/q.
+
+| System (dev) | Accuracy | Refused | Hallucination | Cost/q | p95 |
+|---|---:|---:|---:|---:|---:|
+| filinglens_v3 | 62% | 19% | 19% | $0.0026 | 10.7 s |
+| **filinglens_v4** (v3 + rerank) | **76%** | 8% | 16% | $0.0035 | 13.9 s |
+
+v4 keeps every guarantee: unanswerable 24/24, citation precision 431/431, 0 gate over-refusals.
+Loop stopped here: the remaining failures are mostly metric-definition and judgment
+disagreements with gold (13), where tuning further would overfit to FinanceBench.
+
+**Held-out test split, run once (50 questions, 27 filings never used in development):**
+
+| System | Test accuracy | Refused | Hallucination | Cost/q | p95 |
+|---|---:|---:|---:|---:|---:|
+| naive RAG | 28% | 60% | 12% | $0.0005 | 3.2 s |
+| oracle (gold pages) | 74% | 8% | 18% | $0.0003 | 3.1 s |
+| long context (first 20 q) | 80% | 5% | 15% | $0.102 | 93.9 s |
+| **filinglens_v4** | **76%** | 12% | 12% | **$0.0036** | **13.8 s** |
+
+- **Same 20 questions as long context:** FilingLens v4 17/20, long context 16/20, oracle 13/20,
+  naive RAG 2/20.
+- Dev 76% -> test 76%: no sign of overfitting to the dev questions.
+- On test, v4 beats the oracle: the oracle sees only the evidence pages, while v4's five
+  reranked pages sometimes add the context (e.g. the note explaining a line item) that the
+  evidence page alone lacks.
+- Test citation precision 210/210; unanswerable set re-checked with v4: 24/24.
+- One long-context test question first failed on the 500K tokens/min rate limit and was
+  retried with `--resume` (counted as answered, not as an error).
+
 ### Notes
 - **Judge audit #1 (oracle run, 20 judged answers, graded by Claude Opus 5.5 as second grader):**
   17/20 agreement. All 3 disagreements were the judge being too strict (2 direction questions)
