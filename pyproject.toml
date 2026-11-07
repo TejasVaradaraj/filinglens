@@ -8,12 +8,17 @@ dependencies = [
     "anthropic>=2.0.0",
     "fastembed>=0.9.1",
     "numpy>=2.5.4",
+    "pdfplumber>=0.11.10",
+    "psycopg[binary]>=3.3.8",
     "pydantic>=2.14.1",
     "pymupdf>=2.1",
     "python-dotenv>=1.0",
 ]
 
 [dependency-groups]
+bakeoff = [
+    "docling>=2.148.0",
+]
 dev = [
     "pytest>=8.0",
 ]

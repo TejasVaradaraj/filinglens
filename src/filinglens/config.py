@@ -27,6 +27,12 @@ EVALS_DIR = PROJECT_ROOT / "evals"
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
+# Local Postgres + pgvector from docker-compose.yml.
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://filinglens:filinglens@127.0.0.1:5434/filinglens")
+
+# The SEC requires a User-Agent with real contact details ("Name email@example.com").
+SEC_USER_AGENT = os.getenv("SEC_USER_AGENT")
+
 # The one model the whole project uses (baselines included, so comparisons are fair).
 MODEL = "claude-haiku-5-5"
 # How much the model "thinks" before answering. Low = cheapest and fastest.

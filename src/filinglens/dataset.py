@@ -35,6 +35,7 @@ class Document(BaseModel):
     gics_sector: str | None = None
     doc_type: str
     doc_period: int
+    doc_link: str | None = None
 
     @property
     def pdf_path(self) -> Path:

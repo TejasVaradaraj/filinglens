@@ -1,0 +1,20 @@
+# Postgres with the pgvector extension, for filings, sections, tables, chunks and embeddings.
+# Start: docker compose up -d      Stop: docker compose down      (data persists in the volume)
+services:
+  db:
+    image: pgvector/pgvector:0.8.1-pg17
+    environment:
+      POSTGRES_USER: filinglens
+      POSTGRES_PASSWORD: filinglens   # local dev only; the port is bound to localhost
+      POSTGRES_DB: filinglens
+    ports:
+      - "127.0.0.1:5434:5432"         # 5434: 5432/5433 are used by other local projects
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filinglens"]
+      interval: 2s
+      retries: 30
+
+volumes:
+  pgdata:

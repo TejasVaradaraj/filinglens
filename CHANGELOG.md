@@ -20,6 +20,22 @@ the answering system only (judge cost listed separately in each run's summary.js
 | 2026-11-07 | v0 | naive_rag | dev | 100 | 28% | 61% | 11% | $0.05 | Baseline A; recall@5 exact page 18%, page±1 28%, right filing 83%; p95 3.2 s |
 | 2026-11-07 | v0 | long_context | dev (first 20) | 20 | 90% | 0% | 10% | $1.50 | Baseline B; $0.075/q, median 152K input tokens, p95 161 s. Oracle on the same 20: 18/20 |
 
+## Phase 2: parser bake-off (2026-11-07)
+
+Same oracle system (gold evidence pages), dev set, only the page-text extractor changes.
+
+| Parser | Oracle accuracy | Refused | Hallucination | Speed (M1 CPU) | Full corpus (~12.6K pages) |
+|---|---:|---:|---:|---:|---:|
+| PyMuPDF plain text | 88% | 0% | 12% | 11 ms/page | ~2 min |
+| **pymupdf4llm (chosen)** | **88%** | 4% | **8%** | 199 ms/page | ~40 min (1 core) |
+| pdfplumber + table markdown | 83% | 4% | 13% | 172 ms/page | ~35 min |
+| Docling (layout + table models, no OCR) | 89% | 2% | 9% | 3,228 ms/page | ~11 h |
+
+**Decision: pymupdf4llm.** Docling's +1 point is one question (noise) at 16x the cost; on an
+8 GB M1 it would take ~11 hours for the corpus. pymupdf4llm keeps table rows aligned with
+their columns as markdown (plain text puts every cell on its own line), which the table
+normalizer needs, and cut hallucinations by a third vs plain text.
+
 ### Notes
 - **Judge audit #1 (oracle run, 20 judged answers, graded by Claude Opus 5.5 as second grader):**
   17/20 agreement. All 3 disagreements were the judge being too strict (2 direction questions)

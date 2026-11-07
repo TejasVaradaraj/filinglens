@@ -89,13 +89,14 @@ def summarize(rows: list[dict]) -> dict:
     }
 
 
-def run(system_name: str, split: str, limit: int | None, workers: int, resume: Path | None) -> Path:
+def run(system_name: str, split: str, limit: int | None, workers: int, resume: Path | None,
+        tag: str = "") -> Path:
     questions = load_split(split)
     if limit:
         questions = questions[:limit]
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_dir = resume or config.RUNS_DIR / f"{stamp}_{system_name}_{split}"
+    run_dir = resume or config.RUNS_DIR / f"{stamp}_{system_name}{'_' + tag if tag else ''}_{split}"
     run_dir.mkdir(parents=True, exist_ok=True)
     results_path = run_dir / "results.jsonl"
 
@@ -109,7 +110,7 @@ def run(system_name: str, split: str, limit: int | None, workers: int, resume: P
 
     (run_dir / "meta.json").write_text(json.dumps({
         "system": system_name, "split": split, "limit": limit, "model": config.MODEL,
-        "effort": config.DEFAULT_EFFORT, "started": stamp, "n_questions": len(questions),
+        "effort": config.DEFAULT_EFFORT, "tag": tag, "started": stamp, "n_questions": len(questions),
     }, indent=1))
 
     system = get_system(system_name)
@@ -144,10 +145,11 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="only the first N questions")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--resume", type=Path, default=None)
+    parser.add_argument("--tag", default="", help="label added to the run folder name")
     args = parser.parse_args()
     if args.split == "test":
         print("WARNING: the test split is for final reported numbers only. Don't tune on it.")
-    run(args.system, args.split, args.limit, args.workers, args.resume)
+    run(args.system, args.split, args.limit, args.workers, args.resume, args.tag)
 
 
 if __name__ == "__main__":
