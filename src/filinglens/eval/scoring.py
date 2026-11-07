@@ -18,6 +18,10 @@ from dataclasses import dataclass
 from filinglens import llm
 
 TOLERANCE = 0.01
+# The judge runs at medium effort: at low, it was too literal on yes/no and direction
+# questions (see evals/judge_audit.json). Grading is cheap, so the extra thinking is worth it.
+JUDGE_EFFORT = "medium"
+JUDGE_VOTES = 3
 
 _SCALES = {"thousand": 1e3, "million": 1e6, "billion": 1e9, "trillion": 1e12,
            "k": 1e3, "m": 1e6, "mm": 1e6, "bn": 1e9, "b": 1e9}
@@ -107,18 +111,36 @@ Rules:
   "million" vs "billion" are fine if the value is the same). Extra correct detail is fine.
 - "incorrect": the candidate contradicts the gold answer, gets a key number wrong,
   or misses the main point. Length or confident tone never makes an answer correct.
-- "refused": the candidate declines to answer or says the information is not
-  available, instead of giving an answer.
+- For yes/no, direction ("improved or declined") or "which one" questions, grade the
+  candidate's main conclusion first. If the conclusion matches gold and the numbers it
+  gives are consistent with gold (even if computed a slightly different way, or labeled
+  with a different but equivalent fiscal-year name), it is "correct".
+- "refused": the candidate's headline answer declines or says the information is not
+  disclosed/available, even if it adds some related detail afterwards.
 
 Reply with JSON only: {"verdict": "correct" | "incorrect" | "refused", "reason": "<one sentence>"}"""
 
 
+def majority(verdicts: list[str]) -> str:
+    """Most common verdict; ties go to the stricter one (incorrect > refused > correct)."""
+    strictness = {"incorrect": 0, "refused": 1, "correct": 2}
+    return max(set(verdicts), key=lambda v: (verdicts.count(v), -strictness[v]))
+
+
 def score_with_judge(question: str, gold: str, prediction: str) -> Score:
+    """Ask the judge JUDGE_VOTES times and take the majority. Haiku 5.5 has no
+    temperature setting, so a single call flips on borderline answers."""
     prompt = (f"Question:\n{question}\n\nGold answer:\n{gold}\n\n"
               f"Candidate answer:\n{prediction}\n\nGrade the candidate.")
-    result = llm.complete(prompt, system=JUDGE_SYSTEM, max_tokens=2000)
-    verdict, reason = parse_judge_reply(result.text)
-    return Score(verdict, "judge", reason, judge_cost_usd=result.cost_usd)
+    votes, cost = [], 0.0
+    for _ in range(JUDGE_VOTES):
+        result = llm.complete(prompt, system=JUDGE_SYSTEM, effort=JUDGE_EFFORT, max_tokens=4000)
+        votes.append(parse_judge_reply(result.text))
+        cost += result.cost_usd
+    verdict = majority([v for v, _ in votes])
+    reason = next(r for v, r in votes if v == verdict)
+    split = "" if len({v for v, _ in votes}) == 1 else f" [votes: {', '.join(v for v, _ in votes)}]"
+    return Score(verdict, "judge", reason + split, judge_cost_usd=cost)
 
 
 def parse_judge_reply(text: str) -> tuple[str, str]:

@@ -54,3 +54,9 @@ def test_parse_judge_reply():
 
 def test_empty_answer_is_incorrect_without_calling_judge():
     assert scoring.score("q", "Yes, it grew.", "   ").verdict == "incorrect"
+
+
+def test_majority_vote_and_strict_ties():
+    assert scoring.majority(["correct", "correct", "incorrect"]) == "correct"
+    assert scoring.majority(["correct", "refused", "incorrect"]) == "incorrect"
+    assert scoring.majority(["refused", "correct"]) == "refused"

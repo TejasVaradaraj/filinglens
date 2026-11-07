@@ -10,6 +10,7 @@ Embeddings are computed once and cached under data/cache/naive_rag/.
 from __future__ import annotations
 
 import json
+import time
 from functools import lru_cache
 from threading import Lock
 
@@ -59,12 +60,26 @@ def index() -> tuple[list[dict], np.ndarray]:
     if chunks_path.exists() and vecs_path.exists():
         return json.loads(chunks_path.read_text()), np.load(vecs_path)
 
+    # Embedding ~20K chunks takes ~40 min on an M1 CPU, so save each filing as it
+    # finishes. An interrupted build resumes where it stopped.
     docs = sorted({q.doc_name for q in load_questions()})
-    chunks = [c for d in docs for c in chunk_document(d)]
-    print(f"naive_rag: embedding {len(chunks)} chunks from {len(docs)} filings (one-time)...")
-    vecs = np.array(list(_embedder().embed([c["text"] for c in chunks], batch_size=64)), dtype=np.float32)
+    per_doc = cache_dir / "per_doc"
+    per_doc.mkdir(parents=True, exist_ok=True)
+    chunks, parts = [], []
+    for i, doc in enumerate(docs, 1):
+        doc_chunks = chunk_document(doc)
+        part = per_doc / f"{doc}.npy"
+        if not part.exists():
+            t = time.perf_counter()
+            vec = np.array(list(_embedder().embed([c["text"] for c in doc_chunks], batch_size=16)),
+                           dtype=np.float32)
+            np.save(part, vec)
+            print(f"naive_rag: [{i}/{len(docs)}] {doc}: {len(doc_chunks)} chunks in "
+                  f"{time.perf_counter() - t:.0f}s", flush=True)
+        chunks += doc_chunks
+        parts.append(np.load(part))
+    vecs = np.concatenate(parts)
     vecs /= np.linalg.norm(vecs, axis=1, keepdims=True)
-    cache_dir.mkdir(parents=True, exist_ok=True)
     chunks_path.write_text(json.dumps(chunks))
     np.save(vecs_path, vecs)
     return chunks, vecs

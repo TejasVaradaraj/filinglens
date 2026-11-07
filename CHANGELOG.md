@@ -16,6 +16,19 @@ the answering system only (judge cost listed separately in each run's summary.js
 
 | Date | Version | System | Split | n | Accuracy | Refused | Hallucination | Cost | Notes |
 |---|---|---|---|---:|---:|---:|---:|---:|---|
-| | v0 | oracle (gold pages) | dev | | | | | | upper bound for perfect retrieval |
+| 2026-11-07 | v0 | oracle (gold pages) | dev | 100 | 88% | 0% | 12% | $0.03 | upper bound for perfect retrieval; p95 3.1 s |
 | | v0 | naive_rag | dev | | | | | | Baseline A |
-| | v0 | long_context | dev (20) | | | | | | Baseline B |
+| 2026-11-07 | v0 | long_context | dev (first 20) | 20 | 90% | 0% | 10% | $1.50 | Baseline B; $0.075/q, median 152K input tokens, p95 161 s. Oracle on the same 20: 18/20 |
+
+### Notes
+- **Judge audit #1 (oracle run, 20 judged answers, graded by Claude Opus 5.5 as second grader):**
+  17/20 agreement. All 3 disagreements were the judge being too strict (2 direction questions)
+  or labeling a "not disclosed" hedge as incorrect instead of refused. Fixes: rubric grades the
+  main conclusion of yes/no and direction questions; headline refusals count as refused;
+  judge effort low -> medium; **majority of 3 judge calls** (single calls flipped 2-5 verdicts per
+  rescore, since Haiku 5.5 has no temperature control). After the fix, two rescores changed 0 verdicts.
+- **Long context ties the oracle** on the 20 questions it ran, at 250x the cost and ~50x the p95
+  latency. FilingLens's case is near-oracle accuracy at a fraction of the cost and latency, with
+  verified citations, not raw accuracy over long context.
+- Both long-context misses are judgment calls with debatable gold answers (capital intensity,
+  quick-ratio definition).
