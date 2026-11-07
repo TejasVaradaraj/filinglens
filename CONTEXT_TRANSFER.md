@@ -67,7 +67,7 @@ QUERY (per question)
 
 ---
 
-## 4. Current state of the repo (as of 2026-11-07)
+## 4. Current state of the repo (as of 2026-11-07, end of Phase 8)
 
 Folder: `~/Desktop/filinglens`. Public repo: https://github.com/TejasVaradaraj/filinglens (commits use the GitHub no-reply email; repo-local `user.email` is set to it).
 
@@ -132,7 +132,23 @@ Folder: `~/Desktop/filinglens`. Public repo: https://github.com/TejasVaradaraj/f
 - Planner and reranker outputs are cached (data/cache/plan_cache.json, rerank_cache.json).
 - Not done: earnings transcripts, model routing (by choice), Render deploy (user later).
 
-**Next (optional): Phase 8 (v3)** ordered by resume value: bulk ingestion queue, "what changed" YoY diff, prompt-injection defense, auth, AWS, load test, write-up + demo.
+**Phase 8 / v3 done except deploy and write-up (2026-11-07), branch `phase-8-v3` (merged to main):**
+- EDGAR HTML ingestion (`parsing/html.py`, `ingest.ingest_edgar_filing`); Apple FY2026 10-K + two 10-Qs added (company "Apple", CIK pinned in xbrl.py).
+- Postgres job queue (`python -m filinglens.jobs enqueue-edgar TICKER --company NAME` / `worker` / `status`): idempotency keys, SKIP LOCKED, visibility timeout, backoff, dead letters. Index jobs are per filing with an advisory lock (an earlier version duplicated chunks).
+- `python -m filinglens.diff COMPANY Y1 Y2` / `GET /diff`: XBRL metrics + Item 1A paragraph diff + cited summary.
+- `GET /page/{doc}/{page}?quote=` citation viewer; `POST /export.xlsx`.
+- `security.py`: injection sanitizer (0 false positives on 12,134 pages) + untrusted-data prompt note (FL_DEFENSE=off disables). `scripts/injection_eval.py`: answers corrupted 2/20 -> 0/20.
+- `auth.py`: hashed API keys with per-minute + daily-USD limits, enforced when FL_REQUIRE_API_KEY=1.
+- API SSE stream is async (fixed a 40-thread bottleneck). `scripts/load_test.py` (FL_STUB_SYSTEM=1 for server-only): real pipeline p95 12.0 s at 5 concurrent; server flat to 160 streams.
+- v5 with defenses: dev 75% (vs 78% before; traced to uncached reranker choices, now cached), gate passes.
+- Spend: ~$1.55 of the $5 Phase 7-8 cap; ~$10 total.
+- Leftover dev servers: `uv run` children can outlive TaskStop; check `ps aux | grep uvicorn` and free ports 8765/8766 before starting a server.
+
+**Left:**
+1. Deploy (user deferred). Recommendation: AWS Lightsail 2 GB (~$12/mo, covered by the user's $100 AWS credits) running docker compose; Render is ~$33-46/mo (Standard web $25 + Postgres $6-19). AWS CLI 2.39.5 is installed but the session expired: user must run `aws login`.
+2. Write-up + 2-minute demo script (user would record the screen).
+3. Visual check of the web UI (no browser was available in the build session).
+4. Optional: disguised-injection mentions, "net income attributable" default, EDGAR "Change" header alignment, Sentry, stretch (fine-tune on Colab, MCP server).
 
 ---
 
